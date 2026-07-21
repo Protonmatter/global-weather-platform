@@ -37,6 +37,7 @@ def notification_for(payload: bytes, *, integrity: bool = True, method: str = "s
         "properties": {
             "data_id": "wis2/de-dwd/data/core/synop/temperature",
             "pubtime": "2026-07-20T18:00:30Z",
+            "datetime": "2026-07-20T18:00:00Z",
         },
         "links": [{"href": DATA_URL, "rel": "canonical", "type": "application/json"}],
     }
@@ -143,13 +144,55 @@ def test_missing_integrity_is_recorded_as_unverified(tmp_path: Path) -> None:
 def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
     payload = load_payload()
     consumer = consumer_for(tmp_path, payload)
+
     missing_marker = json.loads(notification_for(payload))
     del missing_marker["conformsTo"]
     missing_geometry = json.loads(notification_for(payload))
     del missing_geometry["geometry"]
-    for message in (missing_marker, missing_geometry):
+    wrong_marker = json.loads(notification_for(payload))
+    wrong_marker["conformsTo"] = ["not-wnm"]
+    both_markers = json.loads(notification_for(payload))
+    both_markers["version"] = "v04"
+    missing_temporal = json.loads(notification_for(payload))
+    del missing_temporal["properties"]["datetime"]
+    empty_geometry = json.loads(notification_for(payload))
+    empty_geometry["geometry"] = {}
+    wrong_geometry = json.loads(notification_for(payload))
+    wrong_geometry["geometry"] = {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}
+
+    for message in (
+        missing_marker,
+        missing_geometry,
+        wrong_marker,
+        both_markers,
+        missing_temporal,
+        empty_geometry,
+        wrong_geometry,
+    ):
         with pytest.raises(Wis2NotificationError):
             consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+
+def test_legacy_version_and_point_geometry_are_accepted(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    del message["conformsTo"]
+    message["version"] = "v04"
+    message["geometry"] = {"type": "Point", "coordinates": [-74.006, 40.7128]}
+    result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert result.observations
+
+
+def test_interval_temporal_description_is_accepted(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    del message["properties"]["datetime"]
+    message["properties"]["start_datetime"] = "2026-07-20T17:00:00Z"
+    message["properties"]["end_datetime"] = "2026-07-20T18:00:00Z"
+    result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert result.observations
 
 
 def test_canonical_link_with_credentials_is_rejected(tmp_path: Path) -> None:

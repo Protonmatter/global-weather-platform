@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -57,12 +57,39 @@ class Wis2Link(BaseModel):
     rel: str = Field(min_length=1)
 
 
-class Wis2Properties(BaseModel):
+WNM_CORE_CONFORMANCE = "http://wis.wmo.int/spec/wnm/1/conf/core"
+LEGACY_WNM_VERSION = "v04"
+
+
+class Wis2Geometry(BaseModel):
+    """WNM permits Point or Polygon geometry (or null on the notification)."""
+
     model_config = ConfigDict(extra="ignore")
+
+    type: Literal["Point", "Polygon"]
+    coordinates: list[Any]
+
+
+class Wis2Properties(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     data_id: str = Field(min_length=1)
     pubtime: AwareDatetime
+    observed_datetime: AwareDatetime | None = Field(default=None, alias="datetime")
+    start_datetime: AwareDatetime | None = None
+    end_datetime: AwareDatetime | None = None
     integrity: Wis2Integrity | None = None
+
+    @model_validator(mode="after")
+    def validate_temporal_description(self) -> "Wis2Properties":
+        # WNM requires a temporal description: an instant or an interval bound.
+        if (
+            self.observed_datetime is None
+            and self.start_datetime is None
+            and self.end_datetime is None
+        ):
+            raise ValueError("notification properties must describe observation time")
+        return self
 
 
 class Wis2Notification(BaseModel):
@@ -77,7 +104,7 @@ class Wis2Notification(BaseModel):
 
     id: UUID
     type: str = Field(pattern="^Feature$")
-    geometry: dict[str, Any] | None
+    geometry: Wis2Geometry | None
     conforms_to: list[str] | None = Field(default=None, alias="conformsTo")
     version: str | None = None
     properties: Wis2Properties
@@ -85,8 +112,14 @@ class Wis2Notification(BaseModel):
 
     @model_validator(mode="after")
     def validate_envelope(self) -> "Wis2Notification":
-        if not self.conforms_to and not self.version:
-            raise ValueError("notification must declare conformsTo or a legacy version")
+        declares_core = self.conforms_to is not None and WNM_CORE_CONFORMANCE in self.conforms_to
+        declares_legacy = self.version == LEGACY_WNM_VERSION
+        if declares_core == declares_legacy:
+            raise ValueError(
+                "notification must declare exactly one WNM conformance marker: "
+                f"conformsTo including {WNM_CORE_CONFORMANCE} or legacy version "
+                f"{LEGACY_WNM_VERSION}"
+            )
         canonical = [link for link in self.links if link.rel == "canonical"]
         if len(canonical) != 1:
             raise ValueError("notification must carry exactly one canonical link")
