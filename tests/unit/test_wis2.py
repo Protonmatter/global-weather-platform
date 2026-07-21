@@ -249,6 +249,67 @@ def test_interval_temporal_description_is_accepted(tmp_path: Path) -> None:
     assert result.observations
 
 
+def test_null_temporal_description_is_accepted(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    message["properties"]["datetime"] = None
+
+    result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+    assert result.observations
+
+
+def test_non_utc_wnm_times_are_rejected_before_fetch(tmp_path: Path) -> None:
+    payload = load_payload()
+    fetched: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        fetched.append(url)
+        return payload
+
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=RawSourceStore(tmp_path / "raw"),
+        fetch=fetch,
+    )
+    non_utc_pubtime = json.loads(notification_for(payload))
+    non_utc_pubtime["properties"]["pubtime"] = "2026-07-20T14:00:30-04:00"
+    non_utc_datetime = json.loads(notification_for(payload))
+    non_utc_datetime["properties"]["datetime"] = "2026-07-20T14:00:00-04:00"
+
+    for message in (non_utc_pubtime, non_utc_datetime):
+        with pytest.raises(Wis2NotificationError):
+            consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+    assert fetched == []
+
+
+def test_oversized_notification_is_retained_and_rejected_before_fetch(tmp_path: Path) -> None:
+    payload = load_payload()
+    fetched: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        fetched.append(url)
+        return payload
+
+    raw_store = RawSourceStore(tmp_path / "raw")
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=raw_store,
+        fetch=fetch,
+    )
+    message = json.loads(notification_for(payload))
+    message["padding"] = "x" * 8192
+    notification = json.dumps(message).encode("utf-8")
+
+    with pytest.raises(Wis2NotificationError) as excinfo:
+        consumer.process(TOPIC, notification, RECEIVED_AT)
+
+    assert raw_store.retrieve(excinfo.value.notification_digest) == notification
+    assert fetched == []
+
+
 def test_canonical_link_with_credentials_is_rejected(tmp_path: Path) -> None:
     payload = load_payload()
     consumer = consumer_for(tmp_path, payload)
