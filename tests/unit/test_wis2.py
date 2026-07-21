@@ -159,6 +159,21 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
     empty_geometry["geometry"] = {}
     wrong_geometry = json.loads(notification_for(payload))
     wrong_geometry["geometry"] = {"type": "LineString", "coordinates": [[0, 0], [1, 1]]}
+    non_numeric_point = json.loads(notification_for(payload))
+    non_numeric_point["geometry"] = {"type": "Point", "coordinates": ["x"]}
+    short_polygon_ring = json.loads(notification_for(payload))
+    short_polygon_ring["geometry"] = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [0, 0]]],
+    }
+    unclosed_polygon_ring = json.loads(notification_for(payload))
+    unclosed_polygon_ring["geometry"] = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+    }
+    start_only_interval = json.loads(notification_for(payload))
+    del start_only_interval["properties"]["datetime"]
+    start_only_interval["properties"]["start_datetime"] = "2026-07-20T17:00:00Z"
 
     for message in (
         missing_marker,
@@ -168,6 +183,10 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
         missing_temporal,
         empty_geometry,
         wrong_geometry,
+        non_numeric_point,
+        short_polygon_ring,
+        unclosed_polygon_ring,
+        start_only_interval,
     ):
         with pytest.raises(Wis2NotificationError):
             consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
@@ -180,6 +199,18 @@ def test_legacy_version_and_point_geometry_are_accepted(tmp_path: Path) -> None:
     del message["conformsTo"]
     message["version"] = "v04"
     message["geometry"] = {"type": "Point", "coordinates": [-74.006, 40.7128]}
+    result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert result.observations
+
+
+def test_closed_polygon_geometry_is_accepted(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    message["geometry"] = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+    }
     result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
     assert result.observations
 

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -61,13 +61,47 @@ WNM_CORE_CONFORMANCE = "http://wis.wmo.int/spec/wnm/1/conf/core"
 LEGACY_WNM_VERSION = "v04"
 
 
-class Wis2Geometry(BaseModel):
-    """WNM permits Point or Polygon geometry (or null on the notification)."""
+Position = tuple[float, float] | tuple[float, float, float]
 
+
+def _validate_position(position: Position) -> None:
+    longitude, latitude = position[0], position[1]
+    if not -180 <= longitude <= 180 or not -90 <= latitude <= 90:
+        raise ValueError("geometry position is outside longitude/latitude bounds")
+
+
+class Wis2PointGeometry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    type: Literal["Point", "Polygon"]
-    coordinates: list[Any]
+    type: Literal["Point"]
+    coordinates: Position
+
+    @model_validator(mode="after")
+    def validate_position(self) -> "Wis2PointGeometry":
+        _validate_position(self.coordinates)
+        return self
+
+
+class Wis2PolygonGeometry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["Polygon"]
+    coordinates: list[list[Position]]
+
+    @model_validator(mode="after")
+    def validate_rings(self) -> "Wis2PolygonGeometry":
+        if not self.coordinates:
+            raise ValueError("polygon geometry requires at least one ring")
+        for ring in self.coordinates:
+            if len(ring) < 4 or ring[0] != ring[-1]:
+                raise ValueError("polygon rings require at least four positions and closure")
+            for position in ring:
+                _validate_position(position)
+        return self
+
+
+# WNM permits Point or Polygon geometry, or null on the notification.
+Wis2Geometry = Wis2PointGeometry | Wis2PolygonGeometry
 
 
 class Wis2Properties(BaseModel):
@@ -82,12 +116,11 @@ class Wis2Properties(BaseModel):
 
     @model_validator(mode="after")
     def validate_temporal_description(self) -> "Wis2Properties":
-        # WNM requires a temporal description: an instant or an interval bound.
-        if (
-            self.observed_datetime is None
-            and self.start_datetime is None
-            and self.end_datetime is None
-        ):
+        # WNM requires an instant or a complete interval; a lone bound is malformed.
+        bounds = (self.start_datetime is not None) + (self.end_datetime is not None)
+        if bounds == 1:
+            raise ValueError("interval notifications require both start and end datetimes")
+        if self.observed_datetime is None and bounds == 0:
             raise ValueError("notification properties must describe observation time")
         return self
 
