@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-200
 title: Observation platform
-status: implemented
+status: accepted
 owners:
   - data-platform
   - observation-quality

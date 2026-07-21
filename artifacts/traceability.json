@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "specifications": [
     {
       "path": "specs/architecture/SPEC-100-system-architecture.md",
@@ -76,7 +76,7 @@
         "WMO-306",
         "CF-CONVENTIONS"
       ],
-      "status": "implemented"
+      "status": "accepted"
     },
     {
       "path": "specs/data/SPEC-210-data-model.md",
@@ -223,5 +223,64 @@
       ],
       "status": "accepted"
     }
-  ]
+  ],
+  "verifications": {
+    "REPORT-SCORECARD-0001": {
+      "notes": "Sliced skill reporting awaits operational verification data.",
+      "status": "planned"
+    },
+    "TEST-CONTRACT-0001": {
+      "notes": "No contract test yet distinguishes official, imported, platform, and experimental output.",
+      "status": "planned"
+    },
+    "TEST-RES-0001": {
+      "notes": "Source-loss staleness behavior is not implemented.",
+      "status": "planned"
+    },
+    "TEST-SCHEMA-0001": {
+      "evidence": [
+        "tests/contract/test_schema_conformance.py",
+        "tests/unit/test_domain.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-SCI-0001": {
+      "notes": "Baseline comparison and temporally separated evaluation await calibration work.",
+      "status": "planned"
+    },
+    "TEST-SCI-0002": {
+      "notes": "Leakage prevention checks await the verification dataset ledger (SCI-001).",
+      "status": "planned"
+    },
+    "TEST-SEC-0001": {
+      "notes": "The deny-by-default policy manifest exists but no automated check verifies it.",
+      "status": "planned"
+    },
+    "TEST-TRACE-0001": {
+      "notes": "Release-unit binding of software, model, configuration, and evidence is not implemented.",
+      "status": "planned"
+    },
+    "TEST-UNIT-0001": {
+      "notes": "Raw source record retention is not implemented.",
+      "status": "planned"
+    },
+    "TEST-UNIT-0002": {
+      "evidence": [
+        "tests/unit/test_probability.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-UNIT-0003": {
+      "evidence": [
+        "tests/unit/test_probability.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-UNIT-0004": {
+      "evidence": [
+        "tests/unit/test_config.py"
+      ],
+      "status": "implemented"
+    }
+  }
 }

@@ -30,7 +30,14 @@ def collect() -> dict[str, Any]:
                 "requirements": data["requirements"],
             }
         )
-    return {"schema_version": "1.0.0", "specifications": specs}
+    verification_map = yaml.safe_load(
+        (ROOT / "specs" / "verification-map.yaml").read_text(encoding="utf-8")
+    )
+    return {
+        "schema_version": "1.1.0",
+        "specifications": specs,
+        "verifications": verification_map["verifications"],
+    }
 
 
 def main() -> int:
