@@ -1,9 +1,8 @@
-from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class QualityDisposition(StrEnum):
@@ -49,9 +48,9 @@ class Provenance(BaseModel):
 
     source_id: str
     source_uri: str | None = None
-    source_published_at: datetime | None = None
+    source_published_at: AwareDatetime | None = None
     source_record_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
-    ingested_at: datetime
+    ingested_at: AwareDatetime
     decoder_version: str
     license_id: str | None = None
 
@@ -68,8 +67,8 @@ class Observation(BaseModel):
     trace: bool = False
     geometry: PointGeometry
     vertical_coordinate: VerticalCoordinate | None = None
-    observation_time: datetime
-    ingestion_time: datetime
+    observation_time: AwareDatetime
+    ingestion_time: AwareDatetime
     quality_disposition: QualityDisposition
     quality_flags: list[str] = Field(default_factory=list)
     provenance: Provenance

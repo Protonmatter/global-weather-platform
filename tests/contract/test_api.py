@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -87,6 +88,18 @@ def test_source_record_retry_does_not_duplicate_observations(tmp_path: Path, mon
     assert first.status_code == 202
     assert second.status_code == 202
     assert second.json() == first.json()
+    assert len(main.store.list()) == 1
+
+
+def test_concurrent_source_record_retries_do_not_duplicate(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        responses = list(
+            pool.map(lambda _: client.post("/v1/source-records", content=payload), range(5))
+        )
+    assert all(response.status_code == 202 for response in responses)
     assert len(main.store.list()) == 1
 
 

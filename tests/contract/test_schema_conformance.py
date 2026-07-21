@@ -54,6 +54,7 @@ def test_model_serialization_conforms_to_json_schema() -> None:
             "quality_disposition": "accept_with_flags",
             "quality_flags": ["range_suspect", "range_suspect"],
         },
+        {"observation_time": "2026-07-20T18:00:00"},
     ],
 )
 def test_model_and_schema_reject_the_same_records(mutation: dict[str, object]) -> None:

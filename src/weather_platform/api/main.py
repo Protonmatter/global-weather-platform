@@ -1,3 +1,4 @@
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -23,6 +24,7 @@ settings = Settings()
 store = JsonlObservationStore(settings.observation_path)
 raw_store = RawSourceStore(settings.raw_source_dir)
 adapter = JsonObservationAdapter()
+_ingest_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -147,11 +149,14 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
             detail="rejected observations cannot enter the canonical store",
         )
     # Redelivered source records are already retained by digest; skipping known
-    # observation ids keeps retries from duplicating canonical observations.
-    existing_ids = {observation.observation_id for observation in store.iter_observations()}
-    for observation in result.observations:
-        if observation.observation_id not in existing_ids:
-            store.append(observation)
+    # observation ids keeps retries from duplicating canonical observations. The
+    # check-then-append pair must be atomic across threadpool workers; a process
+    # lock suffices because the service deploys as a single process.
+    with _ingest_lock:
+        existing_ids = {observation.observation_id for observation in store.iter_observations()}
+        for observation in result.observations:
+            if observation.observation_id not in existing_ids:
+                store.append(observation)
     return {
         "source_record_digest": result.source_record_digest,
         "observation_ids": [str(observation.observation_id) for observation in result.observations],
