@@ -1,10 +1,14 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import UUID
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
+from weather_platform.domain.models import Observation
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
 from weather_platform.storage.raw import RawSourceStore
@@ -141,6 +145,28 @@ def test_conflicting_direct_observation_is_rejected(tmp_path: Path, monkeypatch)
     response = client.post("/v1/observations", json=record)
     assert response.status_code == 409
     assert len(main.store.list()) == 1
+
+
+def test_conflicting_batch_leaves_store_unmutated(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    base = Observation.model_validate_json(payload)
+    main._admit_observations([base])
+
+    fresh = base.model_copy(update={"observation_id": UUID(int=1)})
+    conflicting = base.model_copy(update={"value": 999.0})
+    with pytest.raises(HTTPException) as excinfo:
+        main._admit_observations([fresh, conflicting])
+    assert excinfo.value.status_code == 409
+    assert main.store.list() == [base]
+
+
+def test_http_exception_headers_are_preserved() -> None:
+    client = TestClient(main.app)
+    response = client.request("DELETE", "/healthz")
+    assert response.status_code == 405
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert "GET" in response.headers["allow"]
 
 
 def test_tampered_retained_source_blocks_admission(tmp_path: Path, monkeypatch) -> None:

@@ -1,5 +1,5 @@
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Any
@@ -49,6 +49,7 @@ def problem_response(
     title: str,
     detail: str,
     extra: dict[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     content: dict[str, Any] = {
         "type": problem_type,
@@ -63,6 +64,7 @@ def problem_response(
         status_code=status_code,
         content=content,
         media_type="application/problem+json",
+        headers=headers,
     )
 
 
@@ -80,12 +82,14 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    # Protocol headers such as Allow on 405 must survive the problem+json rewrite.
     return problem_response(
         request,
         status_code=exc.status_code,
         problem_type="about:blank",
         title=HTTPStatus(exc.status_code).phrase,
         detail=str(exc.detail),
+        headers=exc.headers,
     )
 
 
@@ -129,17 +133,20 @@ def health() -> dict[str, Any]:
 def _admit_observations(observations: list[Observation]) -> None:
     # A byte-identical redelivery decodes to an equal observation and is skipped;
     # a differing record under an existing id is a conflict, never a silent drop.
-    # The check-then-append pair must be atomic across threadpool workers; a
-    # process lock suffices because the service deploys as a single process.
+    # The whole batch is conflict-checked before any append so a rejected source
+    # record never leaves a partial batch behind. The check-then-append sequence
+    # must be atomic across threadpool workers; a process lock suffices because
+    # the service deploys as a single process.
     with _ingest_lock:
         existing = {
             observation.observation_id: observation for observation in store.iter_observations()
         }
+        to_append: list[Observation] = []
         for observation in observations:
             current = existing.get(observation.observation_id)
             if current is None:
-                store.append(observation)
                 existing[observation.observation_id] = observation
+                to_append.append(observation)
             elif current != observation:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -148,6 +155,8 @@ def _admit_observations(observations: list[Observation]) -> None:
                         f"an existing canonical record"
                     ),
                 )
+        for observation in to_append:
+            store.append(observation)
 
 
 def _require_retained_source(digest: str) -> None:
@@ -202,6 +211,18 @@ async def create_source_record(request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_ingest_and_store, payload)
 
 
+def _verify_and_retain(payload: bytes, digest: str) -> bool:
+    """Retain the payload under its digest; return whether it was already retained."""
+    if sha256_digest(payload) != digest:
+        raise HTTPException(
+            status_code=422,
+            detail="payload does not match the requested source record digest",
+        )
+    already_retained = raw_store.exists(digest)
+    raw_store.store(payload)
+    return already_retained
+
+
 @app.put("/v1/source-records/{digest}")
 async def put_source_record(
     request: Request, digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")
@@ -210,13 +231,8 @@ async def put_source_record(
     payload = await request.body()
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
-    if sha256_digest(payload) != digest:
-        raise HTTPException(
-            status_code=422,
-            detail="payload does not match the requested source record digest",
-        )
-    already_retained = raw_store.exists(digest)
-    await run_in_threadpool(raw_store.store, payload)
+    # Hashing large payloads is CPU work; keep it off the event loop with the store.
+    already_retained = await run_in_threadpool(_verify_and_retain, payload, digest)
     return JSONResponse(
         status_code=status.HTTP_200_OK if already_retained else status.HTTP_201_CREATED,
         content={"source_record_digest": digest, "status": "retained"},
