@@ -1,0 +1,227 @@
+{
+  "schema_version": "1.0.0",
+  "specifications": [
+    {
+      "path": "specs/architecture/SPEC-100-system-architecture.md",
+      "requirements": [
+        {
+          "id": "ARCH-NET-0001",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Production application and model workloads MUST operate with deny-by-default egress.",
+          "verification": [
+            "TEST-SEC-0001"
+          ]
+        },
+        {
+          "id": "ARCH-TEL-0002",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Telemetry MUST remain disabled unless an approved internal endpoint is explicitly configured.",
+          "verification": [
+            "TEST-UNIT-0004"
+          ]
+        },
+        {
+          "id": "ARCH-REL-0003",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Source loss MUST produce explicit staleness and uncertainty behavior rather than silent continuity.",
+          "verification": [
+            "TEST-RES-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-100",
+      "standards": [
+        "NIST-SP-800-218",
+        "ISO-IEC-25010"
+      ],
+      "status": "accepted"
+    },
+    {
+      "path": "specs/data/SPEC-200-observation-platform.md",
+      "requirements": [
+        {
+          "id": "DATA-RAW-0001",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "The original source message MUST be retained before interpretation or transformation.",
+          "verification": [
+            "TEST-UNIT-0001"
+          ]
+        },
+        {
+          "id": "DATA-TIME-0002",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Observation time, ingestion time, and source publication time MUST be represented independently when available.",
+          "verification": [
+            "TEST-SCHEMA-0001"
+          ]
+        },
+        {
+          "id": "DATA-QC-0003",
+          "priority": "high",
+          "release_gate": "engineering",
+          "statement": "Every observation MUST carry an explicit quality disposition and quality flags.",
+          "verification": [
+            "TEST-SCHEMA-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-200",
+      "standards": [
+        "WMO-WIS2",
+        "WMO-306",
+        "CF-CONVENTIONS"
+      ],
+      "status": "implemented"
+    },
+    {
+      "path": "specs/data/SPEC-210-data-model.md",
+      "requirements": [
+        {
+          "id": "DATA-UNIT-0001",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Canonical values MUST include an explicit unit and MUST NOT infer units from field names.",
+          "verification": [
+            "TEST-SCHEMA-0001"
+          ]
+        },
+        {
+          "id": "DATA-GEO-0002",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Interchange geometry MUST use GeoJSON longitude and latitude ordering.",
+          "verification": [
+            "TEST-SCHEMA-0001"
+          ]
+        },
+        {
+          "id": "DATA-MISS-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Missing values MUST remain distinguishable from measured zero and trace values.",
+          "verification": [
+            "TEST-SCHEMA-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-210",
+      "standards": [
+        "RFC-3339",
+        "RFC-7946",
+        "CF-CONVENTIONS"
+      ],
+      "status": "implemented"
+    },
+    {
+      "path": "specs/models/SPEC-410-calibration.md",
+      "requirements": [
+        {
+          "id": "MODEL-CAL-0001",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Calibration MUST be trained, tuned, and evaluated on temporally separated datasets.",
+          "verification": [
+            "TEST-SCI-0001"
+          ]
+        },
+        {
+          "id": "MODEL-CAL-0002",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Ensemble fusion MUST account for model-error dependence and MUST NOT treat correlated variants as independent evidence.",
+          "verification": [
+            "TEST-UNIT-0003"
+          ]
+        },
+        {
+          "id": "MODEL-CAL-0003",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Forecast probabilities and quantiles MUST satisfy boundedness and monotonicity invariants.",
+          "verification": [
+            "TEST-UNIT-0002"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-410",
+      "standards": [
+        "NIST-AI-RMF",
+        "ISO-IEC-5259"
+      ],
+      "status": "accepted"
+    },
+    {
+      "path": "specs/program/SPEC-000-program-charter.md",
+      "requirements": [
+        {
+          "id": "PROG-GOV-0001",
+          "priority": "critical",
+          "release_gate": "governance",
+          "statement": "The platform MUST distinguish official warnings, imported guidance, platform-generated operational guidance, and experimental output.",
+          "verification": [
+            "TEST-CONTRACT-0001"
+          ]
+        },
+        {
+          "id": "PROG-GOV-0002",
+          "priority": "critical",
+          "release_gate": "governance",
+          "statement": "Every production forecast product MUST bind software, model, configuration, calibration, schema, source policy, and validation evidence into one release unit.",
+          "verification": [
+            "TEST-TRACE-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-000",
+      "standards": [
+        "RFC-2119",
+        "RFC-8174",
+        "NIST-AI-RMF"
+      ],
+      "status": "accepted"
+    },
+    {
+      "path": "specs/validation/SPEC-800-validation-plan.md",
+      "requirements": [
+        {
+          "id": "VAL-BASE-0001",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Every candidate forecast method MUST be compared with declared operational, persistence, and climatological baselines when applicable.",
+          "verification": [
+            "TEST-SCI-0001"
+          ]
+        },
+        {
+          "id": "VAL-SLICE-0002",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Validation MUST report skill by lead time, region, season, regime, event magnitude, and observation density where sample size permits.",
+          "verification": [
+            "REPORT-SCORECARD-0001"
+          ]
+        },
+        {
+          "id": "VAL-LEAK-0003",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Historical evaluation MUST prevent use of data unavailable at the simulated forecast issuance time.",
+          "verification": [
+            "TEST-SCI-0002"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-800",
+      "standards": [
+        "ISO-IEC-25010",
+        "NIST-AI-RMF-MEASURE"
+      ],
+      "status": "accepted"
+    }
+  ]
+}
