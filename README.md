@@ -6,7 +6,7 @@ This repository implements the first vertical slice:
 
 - normative specifications with executable traceability checks;
 - canonical observation, forecast, event, and provenance schemas;
-- an append-only observation store;
+- an append-only observation store with content-addressed raw source retention;
 - a FastAPI control-plane API;
 - baseline probabilistic verification functions;
 - deny-by-default Kubernetes egress policy;

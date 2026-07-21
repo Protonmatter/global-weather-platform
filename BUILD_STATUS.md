@@ -8,7 +8,9 @@
 - Observation, forecast, model-cycle, and provenance JSON Schemas
 - Typed canonical observation model with schema conformance tests
 - Append-only JSONL observation store
-- FastAPI health, ingest, and query endpoints
+- Content-addressed, write-once raw source record store
+- Source-record ingestion that retains raw bytes before decoding and binds provenance digests
+- FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS, reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
@@ -20,15 +22,14 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 32 passed
-- Branch-aware coverage: 94.84%
+- Unit and contract tests: 43 passed
+- Branch-aware coverage: 95.63%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
 
 ## Explicitly not implemented yet
 
-- Raw source record retention (DATA-RAW-0001)
 - WIS2, GRIB2, BUFR, radar, satellite, or external NWP adapters
 - Object storage and indexed canonical storage
 - OGC API EDR implementation

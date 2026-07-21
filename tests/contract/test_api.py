@@ -4,9 +4,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
+from weather_platform.storage.raw import RawSourceStore
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def isolated_client(tmp_path: Path, monkeypatch) -> TestClient:
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+    monkeypatch.setattr(main, "raw_store", RawSourceStore(tmp_path / "raw"))
+    return TestClient(main.app)
 
 
 def test_observation_round_trip(tmp_path: Path, monkeypatch) -> None:
@@ -49,6 +57,55 @@ def test_problem_details_for_invalid_store_limit(tmp_path: Path, monkeypatch) ->
     response = client.get("/v1/observations", params={"limit": 10001})
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"] == "urn:weather:problem:invalid-request"
+
+
+def test_source_record_ingestion_round_trip(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+
+    response = client.post("/v1/source-records", content=payload)
+    assert response.status_code == 202
+    digest = response.json()["source_record_digest"]
+    assert digest == sha256_digest(payload)
+
+    response = client.get(f"/v1/source-records/{digest}")
+    assert response.status_code == 200
+    assert response.content == payload
+
+    response = client.get("/v1/observations")
+    assert response.status_code == 200
+    assert response.json()[0]["provenance"]["source_record_digest"] == digest
+
+
+def test_undecodable_source_record_is_retained_and_rejected(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = b"not-a-canonical-observation"
+
+    response = client.post("/v1/source-records", content=payload)
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+    response = client.get(f"/v1/source-records/{sha256_digest(payload)}")
+    assert response.status_code == 200
+    assert response.content == payload
+    assert main.store.list() == []
+
+
+def test_empty_source_record_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    response = client.post("/v1/source-records", content=b"")
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
+def test_unknown_source_record_is_not_found(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    response = client.get(f"/v1/source-records/sha256:{'0' * 64}")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+    response = client.get("/v1/source-records/not-a-digest")
+    assert response.status_code == 422
     assert response.json()["type"] == "urn:weather:problem:invalid-request"
 
 

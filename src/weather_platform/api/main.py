@@ -4,19 +4,24 @@ from http import HTTPStatus
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import FastAPI, HTTPException, Path, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from weather_platform import __version__
 from weather_platform.config import Settings
 from weather_platform.domain.models import Observation
+from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
+from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
 from weather_platform.storage.jsonl import JsonlObservationStore
+from weather_platform.storage.raw import RawSourceStore
 
 settings = Settings()
 store = JsonlObservationStore(settings.observation_path)
+raw_store = RawSourceStore(settings.raw_source_dir)
+adapter = JsonObservationAdapter()
 
 
 @asynccontextmanager
@@ -113,6 +118,38 @@ def create_observation(observation: Observation) -> dict[str, str]:
         )
     store.append(observation)
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
+
+
+@app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
+async def create_source_record(request: Request) -> dict[str, Any]:
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+    try:
+        result = ingest_source_record(payload, adapter=adapter, raw_store=raw_store)
+    except SourceDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if any(
+        observation.quality_disposition.value == "reject" for observation in result.observations
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="rejected observations cannot enter the canonical store",
+        )
+    for observation in result.observations:
+        store.append(observation)
+    return {
+        "source_record_digest": result.source_record_digest,
+        "observation_ids": [str(observation.observation_id) for observation in result.observations],
+        "status": "accepted",
+    }
+
+
+@app.get("/v1/source-records/{digest}")
+def get_source_record(digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")) -> Response:
+    if not raw_store.exists(digest):
+        raise HTTPException(status_code=404, detail="source record not found")
+    return Response(content=raw_store.retrieve(digest), media_type="application/octet-stream")
 
 
 @app.get("/v1/observations", response_model=list[Observation])

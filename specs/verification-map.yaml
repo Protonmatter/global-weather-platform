@@ -17,8 +17,10 @@ verifications:
     status: planned
     notes: The deny-by-default policy manifest exists but no automated check verifies it.
   TEST-UNIT-0001:
-    status: planned
-    notes: Raw source record retention is not implemented.
+    status: implemented
+    evidence:
+      - tests/unit/test_raw_store.py
+      - tests/unit/test_ingest_pipeline.py
   TEST-UNIT-0002:
     status: implemented
     evidence:

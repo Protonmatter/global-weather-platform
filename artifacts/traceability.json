@@ -76,7 +76,7 @@
         "WMO-306",
         "CF-CONVENTIONS"
       ],
-      "status": "accepted"
+      "status": "implemented"
     },
     {
       "path": "specs/data/SPEC-210-data-model.md",
@@ -261,8 +261,11 @@
       "status": "planned"
     },
     "TEST-UNIT-0001": {
-      "notes": "Raw source record retention is not implemented.",
-      "status": "planned"
+      "evidence": [
+        "tests/unit/test_raw_store.py",
+        "tests/unit/test_ingest_pipeline.py"
+      ],
+      "status": "implemented"
     },
     "TEST-UNIT-0002": {
       "evidence": [

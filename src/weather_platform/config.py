@@ -28,3 +28,7 @@ class Settings(BaseSettings):
     @property
     def observation_path(self) -> Path:
         return self.data_dir / self.data_filename
+
+    @property
+    def raw_source_dir(self) -> Path:
+        return self.data_dir / "raw"
