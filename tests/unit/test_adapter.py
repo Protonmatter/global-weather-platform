@@ -10,3 +10,4 @@ def test_json_adapter_decodes_canonical_observation() -> None:
     observations = JsonObservationAdapter().decode(payload)
     assert len(observations) == 1
     assert observations[0].phenomenon == "air_temperature"
+    assert JsonObservationAdapter().adapter_id == "json-observation-adapter/0.2.0"

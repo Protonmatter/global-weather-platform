@@ -10,7 +10,8 @@ dist/
 build/
 *.egg-info/
 data/*.jsonl
-artifacts/
+artifacts/*
+!artifacts/traceability.json
 .env
 .DS_Store
 .wheelhouse/

@@ -4,11 +4,18 @@ work_items:
   - id: DATA-001
     title: Content-addressed raw object store
     priority: P0
-    requirements: [DATA-RAW-0001]
+    status: implemented
+    requirements: [DATA-RAW-0001, DATA-RAW-0002, DATA-RAW-0003, DATA-PROV-0004]
+    evidence:
+      - src/weather_platform/storage/raw_objects.py
+      - src/weather_platform/ingestion/service.py
+      - tests/unit/test_raw_objects.py
+      - tests/unit/test_ingestion_service.py
+      - tests/contract/test_api.py
     acceptance:
       - Original source bytes are immutable and addressable by SHA-256.
       - Canonical records reference the stored source object.
-      - Duplicate source records are idempotent.
+      - Duplicate source records are idempotent for a stable decoder version.
   - id: DATA-002
     title: WIS2 notification consumer
     priority: P0

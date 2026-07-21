@@ -38,3 +38,10 @@ def test_sha256_digest_is_content_addressed() -> None:
     assert sha256_digest(b"weather") == (
         "sha256:e5e72beb4e3c6926d3dc9e3e2ef7833ba50cd919c2460a782b244fd071e920de"
     )
+
+
+def test_provenance_requires_content_addressed_source_uri() -> None:
+    record = load_observation()
+    record["provenance"]["source_object_uri"] = "https://example.com/raw"
+    with pytest.raises(ValidationError):
+        Observation.model_validate(record)

@@ -24,7 +24,13 @@ class Settings(BaseSettings):
         return value
 
     data_filename: str = Field(default="observations.jsonl", exclude=True)
+    raw_object_subdirectory: str = Field(default="raw-objects", exclude=True)
+    max_raw_object_bytes: int = Field(default=64 * 1024 * 1024, gt=0)
 
     @property
     def observation_path(self) -> Path:
         return self.data_dir / self.data_filename
+
+    @property
+    def raw_object_dir(self) -> Path:
+        return self.data_dir / self.raw_object_subdirectory

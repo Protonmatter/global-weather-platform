@@ -6,7 +6,7 @@ This repository implements the first vertical slice:
 
 - normative specifications with executable traceability checks;
 - canonical observation, forecast, event, and provenance schemas;
-- an append-only observation store;
+- an immutable SHA-256 raw object store and append-only observation store;
 - a FastAPI control-plane API;
 - baseline probabilistic verification functions;
 - deny-by-default Kubernetes egress policy;
@@ -42,12 +42,12 @@ curl -s 'http://127.0.0.1:8080/v1/observations?phenomenon=air_temperature'
 
 1. Specifications are normative and use RFC 2119/RFC 8174 terminology.
 2. Critical requirements require an owner, verification reference, and release gate.
-3. Raw source records are immutable; corrected interpretations become new derived records.
+3. Raw source records are immutable, SHA-256-addressed, and retained before decoding; corrected interpretations become new derived records.
 4. Runtime telemetry is disabled unless an internal endpoint is explicitly configured.
 5. Production egress is deny-by-default and opened only for documented acquisition workers.
 6. Scientific changes require declared baselines, locked validation data, and independent review.
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/NETWORK_BOUNDARY.md](docs/NETWORK_BOUNDARY.md).
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), [docs/RAW_OBJECT_STORE.md](docs/RAW_OBJECT_STORE.md), and [docs/NETWORK_BOUNDARY.md](docs/NETWORK_BOUNDARY.md).
 
 ## Publish the initial private GitHub repository
 

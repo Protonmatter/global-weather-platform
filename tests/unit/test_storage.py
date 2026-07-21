@@ -11,7 +11,8 @@ def test_append_and_filter(tmp_path: Path) -> None:
     record = json.loads((ROOT / "testdata/observations/temperature.json").read_text())
     observation = Observation.model_validate(record)
     store = JsonlObservationStore(tmp_path / "observations.jsonl")
-    store.append(observation)
+    assert store.append(observation) is True
+    assert store.append(observation) is False
     assert store.list(phenomenon="air_temperature") == [observation]
     assert store.list(phenomenon="wind_speed") == []
 
