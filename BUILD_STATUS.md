@@ -3,12 +3,13 @@
 ## Implemented
 
 - Spec front-matter schema and normative requirement validation
+- Verification evidence registry checked against spec statuses
 - Generated requirement traceability artifact
 - Observation, forecast, model-cycle, and provenance JSON Schemas
-- Typed canonical observation model
+- Typed canonical observation model with schema conformance tests
 - Append-only JSONL observation store
 - FastAPI health, ingest, and query endpoints
-- RFC 9457-style problem response for service-level value errors
+- RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS, reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
 - Telemetry disabled by default and restricted to internal collector names
@@ -17,16 +18,17 @@
 
 ## Verification
 
-- Specification validation: 17 requirements
+- Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 26 passed
-- Branch-aware coverage: 94.07%
+- Unit and contract tests: 32 passed
+- Branch-aware coverage: 94.84%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
 
 ## Explicitly not implemented yet
 
+- Raw source record retention (DATA-RAW-0001)
 - WIS2, GRIB2, BUFR, radar, satellite, or external NWP adapters
 - Object storage and indexed canonical storage
 - OGC API EDR implementation
