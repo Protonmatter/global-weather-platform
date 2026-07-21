@@ -3,7 +3,7 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -59,9 +59,15 @@ class Wis2Link(BaseModel):
 
 WNM_CORE_CONFORMANCE = "http://wis.wmo.int/spec/wnm/1/conf/core"
 LEGACY_WNM_VERSION = "v04"
+MAX_WIS2_NOTIFICATION_BYTES = 8192
 
 
 Position = tuple[float, float] | tuple[float, float, float]
+
+
+def _require_utc(value: datetime, field_name: str) -> None:
+    if value.utcoffset() != timedelta(0):
+        raise ValueError(f"{field_name} must use the UTC timezone")
 
 
 def _validate_position(position: Position) -> None:
@@ -117,13 +123,23 @@ class Wis2Properties(BaseModel):
     @model_validator(mode="after")
     def validate_temporal_description(self) -> "Wis2Properties":
         # WNM temporal metadata is an exclusive choice: one instant or one
-        # complete interval. Reject mixed and partial descriptions before fetch.
+        # complete interval. An explicitly null instant is valid when the data's
+        # time cannot be derived; an omitted instant is not equivalent to null.
+        _require_utc(self.pubtime, "pubtime")
+        has_instant = "observed_datetime" in self.model_fields_set
         bounds = (self.start_datetime is not None) + (self.end_datetime is not None)
-        if self.observed_datetime is not None:
+        if has_instant:
             if bounds != 0:
                 raise ValueError("notification properties must not mix datetime with an interval")
+            if self.observed_datetime is not None:
+                _require_utc(self.observed_datetime, "datetime")
         elif bounds != 2:
             raise ValueError("notification properties require datetime or both interval bounds")
+        else:
+            assert self.start_datetime is not None
+            assert self.end_datetime is not None
+            _require_utc(self.start_datetime, "start_datetime")
+            _require_utc(self.end_datetime, "end_datetime")
         return self
 
 
@@ -227,6 +243,8 @@ class Wis2NotificationConsumer:
             raise ValueError("received_at must be timezone-aware")
         # The notification is itself a source record: retain before interpretation.
         notification_digest = self._raw_store.store(notification)
+        if len(notification) > MAX_WIS2_NOTIFICATION_BYTES:
+            raise Wis2NotificationError(notification_digest)
         try:
             message = Wis2Notification.model_validate_json(notification)
         except ValueError as exc:
