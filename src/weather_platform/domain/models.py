@@ -58,6 +58,7 @@ class Provenance(BaseModel):
     source_uri: AnyUrl | None = None
     source_published_at: AwareDatetime | None = None
     source_record_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    received_at: AwareDatetime | None = None
     ingested_at: AwareDatetime
     decoder_version: str = Field(min_length=1)
     license_id: str | None = None

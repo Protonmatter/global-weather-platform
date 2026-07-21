@@ -17,6 +17,7 @@
     "source_uri": "https://example.invalid/observations/temperature",
     "source_published_at": "2026-07-20T18:00:30Z",
     "source_record_digest": "sha256:3a38d4f0f4d45eb0fef35c6e31be9313cf3f2e7f72f35bcb44c2998c54c1a71f",
+    "received_at": "2026-07-20T18:00:41Z",
     "ingested_at": "2026-07-20T18:01:03Z",
     "decoder_version": "json-observation-adapter/0.1.0",
     "license_id": "development-only"
