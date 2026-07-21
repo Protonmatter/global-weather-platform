@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class QualityDisposition(StrEnum):
@@ -10,6 +11,13 @@ class QualityDisposition(StrEnum):
     ACCEPT_WITH_FLAGS = "accept_with_flags"
     QUARANTINE = "quarantine"
     REJECT = "reject"
+
+
+class VerticalCoordinateType(StrEnum):
+    HEIGHT = "height"
+    PRESSURE = "pressure"
+    DEPTH = "depth"
+    MODEL_LEVEL = "model_level"
 
 
 class PointGeometry(BaseModel):
@@ -31,7 +39,7 @@ class PointGeometry(BaseModel):
 class VerticalCoordinate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: str
+    type: VerticalCoordinateType
     value: float
     unit: str
 
@@ -51,7 +59,7 @@ class Provenance(BaseModel):
 class Observation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.0.0"
+    schema_version: Literal["1.0.0"] = "1.0.0"
     observation_id: UUID
     phenomenon: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     value: float | None
@@ -65,6 +73,13 @@ class Observation(BaseModel):
     quality_disposition: QualityDisposition
     quality_flags: list[str] = Field(default_factory=list)
     provenance: Provenance
+
+    @field_validator("quality_flags")
+    @classmethod
+    def validate_quality_flags_unique(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("quality flags must be unique")
+        return value
 
     @model_validator(mode="after")
     def validate_missingness(self) -> "Observation":
