@@ -32,6 +32,14 @@ class Wis2IntegrityMethod(StrEnum):
     SHA256 = "sha256"
     SHA384 = "sha384"
     SHA512 = "sha512"
+    SHA3_256 = "sha3-256"
+    SHA3_384 = "sha3-384"
+    SHA3_512 = "sha3-512"
+
+    @property
+    def hashlib_name(self) -> str:
+        # WIS2 spells SHA-3 methods with a hyphen; hashlib uses an underscore.
+        return self.value.replace("-", "_")
 
 
 class Wis2Integrity(BaseModel):
@@ -75,6 +83,9 @@ class Wis2Notification(BaseModel):
         canonical = [link for link in self.links if link.rel == "canonical"]
         if len(canonical) != 1:
             raise ValueError("notification must carry exactly one canonical link")
+        # No acquisition path may fall back to unauthenticated transport (DATA-004).
+        if canonical[0].href.scheme != "https":
+            raise ValueError("canonical link must use https")
         return self
 
     @property
@@ -175,7 +186,7 @@ class Wis2NotificationConsumer:
             claimed = base64.b64decode(integrity.value, validate=True)
         except ValueError as exc:
             raise Wis2IntegrityError(source_record_digest) from exc
-        computed = hashlib.new(integrity.method.value, payload).digest()
+        computed = hashlib.new(integrity.method.hashlib_name, payload).digest()
         if claimed != computed:
             raise Wis2IntegrityError(source_record_digest)
         return True

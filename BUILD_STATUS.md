@@ -24,8 +24,8 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 71 passed
-- Branch-aware coverage: 95.56%
+- Unit and contract tests: 74 passed
+- Branch-aware coverage: 95.62%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed

@@ -28,7 +28,7 @@ def load_payload() -> bytes:
     return (ROOT / "testdata/observations/temperature.json").read_bytes()
 
 
-def notification_for(payload: bytes, *, integrity: bool = True) -> bytes:
+def notification_for(payload: bytes, *, integrity: bool = True, method: str = "sha256") -> bytes:
     message = {
         "id": "8bb4b78d-4b21-4a71-9d99-6dd2f6b2c0a4",
         "type": "Feature",
@@ -40,9 +40,10 @@ def notification_for(payload: bytes, *, integrity: bool = True) -> bytes:
         "links": [{"href": DATA_URL, "rel": "canonical", "type": "application/json"}],
     }
     if integrity:
+        digest = hashlib.new(method.replace("-", "_"), payload).digest()
         message["properties"]["integrity"] = {
-            "method": "sha256",
-            "value": base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii"),
+            "method": method,
+            "value": base64.b64encode(digest).decode("ascii"),
         }
     return json.dumps(message).encode("utf-8")
 
@@ -101,6 +102,32 @@ def test_integrity_mismatch_fails_closed_but_retains_evidence(tmp_path: Path) ->
     with pytest.raises(Wis2IntegrityError) as excinfo:
         consumer.process(TOPIC, notification, RECEIVED_AT)
     assert RawSourceStore(tmp_path / "raw").retrieve(excinfo.value.source_record_digest) == payload
+
+
+def test_sha3_integrity_methods_are_accepted(tmp_path: Path) -> None:
+    payload = load_payload()
+    for method in ("sha3-256", "sha3-384", "sha3-512", "sha384", "sha512"):
+        consumer = consumer_for(tmp_path / method.replace("-", "_"), payload)
+        result = consumer.process(TOPIC, notification_for(payload, method=method), RECEIVED_AT)
+        assert result.upstream_integrity_verified is True
+
+
+def test_non_https_canonical_link_is_rejected(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    message["links"] = [{"href": "http://gts.example/data/temperature.json", "rel": "canonical"}]
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+
+def test_non_canonical_links_may_use_other_schemes(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    message["links"].append({"href": "http://mirror.example/alt", "rel": "via"})
+    result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert result.observations
 
 
 def test_missing_integrity_is_recorded_as_unverified(tmp_path: Path) -> None:
