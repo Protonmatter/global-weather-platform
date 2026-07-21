@@ -121,13 +121,9 @@ class Wis2Properties(BaseModel):
         bounds = (self.start_datetime is not None) + (self.end_datetime is not None)
         if self.observed_datetime is not None:
             if bounds != 0:
-                raise ValueError(
-                    "notification properties must not mix datetime with an interval"
-                )
+                raise ValueError("notification properties must not mix datetime with an interval")
         elif bounds != 2:
-            raise ValueError(
-                "notification properties require datetime or both interval bounds"
-            )
+            raise ValueError("notification properties require datetime or both interval bounds")
         return self
 
 
