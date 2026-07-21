@@ -14,12 +14,17 @@ from weather_platform.ingestion.base import ObservationAdapter
 from weather_platform.ingestion.pipeline import ingest_source_record
 from weather_platform.storage.raw import RawSourceStore
 
-WIS2_TOPIC = re.compile(r"^(origin|cache)/a/wis2/[a-z0-9-]+(/[a-z0-9._-]+)+$")
+# {origin|cache}/a/wis2/{centre-id}/data/{core|recommended}/{domain...}: this
+# consumer acquires data notifications only, so metadata channels and unknown
+# notification types or data policies are rejected before any fetch.
+WIS2_TOPIC = re.compile(
+    r"^(origin|cache)/a/wis2/[a-z0-9-]+/data/(core|recommended)(/[a-z0-9._-]+)+$"
+)
 
 
 def validate_wis2_topic(topic: str) -> str:
     if not WIS2_TOPIC.match(topic):
-        raise ValueError("topic is not a valid WIS2 notification topic")
+        raise ValueError("topic is not a valid WIS2 data notification topic")
     return topic
 
 
@@ -67,8 +72,9 @@ class Wis2Notification(BaseModel):
 
     @model_validator(mode="after")
     def validate_canonical_link(self) -> "Wis2Notification":
-        if not any(link.rel == "canonical" for link in self.links):
-            raise ValueError("notification must carry a canonical link")
+        canonical = [link for link in self.links if link.rel == "canonical"]
+        if len(canonical) != 1:
+            raise ValueError("notification must carry exactly one canonical link")
         return self
 
     @property

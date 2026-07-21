@@ -130,13 +130,20 @@ def health() -> dict[str, Any]:
     }
 
 
+def _observation_content(observation: Observation) -> dict[str, Any]:
+    # Receipt time is acquisition metadata, not observed content: redelivery of
+    # identical source bytes arrives later but must stay idempotent, and the
+    # first retained record keeps its original receipt time.
+    return observation.model_dump(mode="json", exclude={"provenance": {"received_at"}})
+
+
 def _admit_observations(observations: list[Observation]) -> None:
-    # A byte-identical redelivery decodes to an equal observation and is skipped;
-    # a differing record under an existing id is a conflict, never a silent drop.
-    # The whole batch is conflict-checked before any append so a rejected source
-    # record never leaves a partial batch behind. The check-then-append sequence
-    # must be atomic across threadpool workers; a process lock suffices because
-    # the service deploys as a single process.
+    # A redelivery with identical content is skipped; a differing record under
+    # an existing id is a conflict, never a silent drop. The whole batch is
+    # conflict-checked before any append so a rejected source record never
+    # leaves a partial batch behind. The check-then-append sequence must be
+    # atomic across threadpool workers; a process lock suffices because the
+    # service deploys as a single process.
     with _ingest_lock:
         existing = {
             observation.observation_id: observation for observation in store.iter_observations()
@@ -147,7 +154,7 @@ def _admit_observations(observations: list[Observation]) -> None:
             if current is None:
                 existing[observation.observation_id] = observation
                 to_append.append(observation)
-            elif current != observation:
+            elif _observation_content(current) != _observation_content(observation):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(

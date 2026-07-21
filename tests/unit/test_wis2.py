@@ -58,7 +58,16 @@ def consumer_for(tmp_path: Path, payload: bytes) -> Wis2NotificationConsumer:
 def test_topic_validation() -> None:
     validate_wis2_topic(TOPIC)
     validate_wis2_topic("cache/a/wis2/int-wmo-test/data/core/synop")
-    for topic in ("origin/a/wis3/x/data", "random/topic", "origin/a/wis2/de-dwd"):
+    validate_wis2_topic("origin/a/wis2/de-dwd/data/recommended/weather/synop")
+    for topic in (
+        "origin/a/wis3/x/data/core/synop",
+        "random/topic",
+        "origin/a/wis2/de-dwd",
+        "origin/a/wis2/de-dwd/foo",
+        "origin/a/wis2/de-dwd/data/private/weather",
+        "origin/a/wis2/de-dwd/metadata/core/discovery",
+        "origin/a/wis2/de-dwd/data/core",
+    ):
         with pytest.raises(ValueError, match="WIS2"):
             validate_wis2_topic(topic)
 
@@ -109,13 +118,20 @@ def test_malformed_notification_is_retained_before_failing(tmp_path: Path) -> No
     assert RawSourceStore(tmp_path / "raw").retrieve(digest) == b"not-a-notification"
 
 
-def test_notification_without_canonical_link_is_rejected(tmp_path: Path) -> None:
+def test_notification_without_exactly_one_canonical_link_is_rejected(tmp_path: Path) -> None:
     payload = load_payload()
-    message = json.loads(notification_for(payload))
-    message["links"] = [{"href": DATA_URL, "rel": "via"}]
     consumer = consumer_for(tmp_path, payload)
-    with pytest.raises(Wis2NotificationError):
-        consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    for links in (
+        [{"href": DATA_URL, "rel": "via"}],
+        [
+            {"href": DATA_URL, "rel": "canonical"},
+            {"href": "https://mirror.example/other", "rel": "canonical"},
+        ],
+    ):
+        message = json.loads(notification_for(payload))
+        message["links"] = links
+        with pytest.raises(Wis2NotificationError):
+            consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
 
 
 def test_invalid_topic_never_fetches(tmp_path: Path) -> None:
@@ -141,8 +157,11 @@ def test_redelivery_does_not_duplicate_canonical_observations(tmp_path: Path, mo
     monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
 
     first = consumer.process(TOPIC, notification_for(payload), RECEIVED_AT)
-    second = consumer.process(TOPIC, notification_for(payload), RECEIVED_AT)
+    later = datetime(2026, 7, 20, 18, 5, 0, tzinfo=UTC)
+    second = consumer.process(TOPIC, notification_for(payload), later)
     assert second.source_record_digest == first.source_record_digest
     main._admit_observations(first.observations)
     main._admit_observations(second.observations)
-    assert len(main.store.list()) == 1
+    stored = main.store.list()
+    assert len(stored) == 1
+    assert stored[0].provenance.received_at == RECEIVED_AT
