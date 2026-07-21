@@ -1,0 +1,34 @@
+name: build-image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, weather-build]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require internal registry configuration
+        run: |
+          test -n "${{ vars.INTERNAL_REGISTRY }}"
+          test -n "${{ vars.PYTHON_BASE_IMAGE }}"
+      - name: Build wheelhouse from the internal mirror
+        env:
+          PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
+          IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
+          BASE_IMAGE: ${{ vars.PYTHON_BASE_IMAGE }}
+        run: ./scripts/build_image.sh
+      - name: Run internal artifact policy and signing
+        env:
+          IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
+        run: |
+          test -n "${INTERNAL_RELEASE_ATTEST_COMMAND:-}"
+          bash -lc "$INTERNAL_RELEASE_ATTEST_COMMAND"

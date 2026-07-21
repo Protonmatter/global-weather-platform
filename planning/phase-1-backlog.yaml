@@ -1,0 +1,59 @@
+program_increment: PI-001-observation-foundation
+objective: Establish authoritative live-data ingestion and a queryable forecast laboratory.
+work_items:
+  - id: DATA-001
+    title: Content-addressed raw object store
+    priority: P0
+    requirements: [DATA-RAW-0001]
+    acceptance:
+      - Original source bytes are immutable and addressable by SHA-256.
+      - Canonical records reference the stored source object.
+      - Duplicate source records are idempotent.
+  - id: DATA-002
+    title: WIS2 notification consumer
+    priority: P0
+    requirements: [DATA-TIME-0002, DATA-QC-0003]
+    acceptance:
+      - MQTT notifications are consumed only by the acquisition trust zone.
+      - Publication, receipt, and ingestion times remain distinct.
+      - Retries do not duplicate canonical observations.
+  - id: DATA-003
+    title: GRIB2 and BUFR decoder service
+    priority: P0
+    requirements: [DATA-RAW-0001, DATA-UNIT-0001]
+    acceptance:
+      - ecCodes table versions are pinned and recorded.
+      - Malformed-message corpus is rejected or quarantined safely.
+      - Decoder changes replay the golden corpus without unexplained semantic drift.
+  - id: MODEL-001
+    title: External GFS and GEFS cycle catalog
+    priority: P0
+    requirements: [PROG-GOV-0002]
+    acceptance:
+      - Cycle, lead, grid, variable, level, and source revision are indexed.
+      - Missing or partial cycles are explicit.
+      - Imported guidance is labeled separately from platform guidance.
+  - id: API-001
+    title: OGC API EDR position query
+    priority: P1
+    requirements: [DATA-GEO-0002]
+    acceptance:
+      - Position and datetime subset queries pass contract tests.
+      - Antimeridian behavior is specified and tested.
+      - Responses expose units, provenance, issue time, and valid time.
+  - id: SCI-001
+    title: Verification dataset ledger
+    priority: P0
+    requirements: [VAL-LEAK-0003, VAL-BASE-0001]
+    acceptance:
+      - Every verification case records availability-at-issue time.
+      - Corrected observations are separated from operationally available observations.
+      - Baseline forecasts are versioned and reproducible.
+  - id: UX-001
+    title: Progressive-disclosure forecast shell
+    priority: P1
+    requirements: []
+    acceptance:
+      - Situation, forecast, uncertainty, and diagnostic layers preserve context.
+      - Staleness and official-versus-experimental state are visible.
+      - Primary workflows meet WCAG 2.2 AA acceptance tests.

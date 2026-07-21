@@ -1,0 +1,31 @@
+name: pr-fast
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: [self-hosted, linux, weather-ci]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require internal package mirror
+        run: test -n "${{ vars.PYPI_MIRROR_URL }}"
+      - name: Create isolated environment
+        run: python3.12 -m venv .venv
+      - name: Install
+        env:
+          PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
+        run: .venv/bin/python -m pip install -e '.[dev]'
+      - name: Lint
+        run: PATH="$PWD/.venv/bin:$PATH" make lint
+      - name: Type check
+        run: PATH="$PWD/.venv/bin:$PATH" make typecheck
+      - name: Test
+        run: PATH="$PWD/.venv/bin:$PATH" make test

@@ -1,0 +1,20 @@
+name: security-deep
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  static-and-policy:
+    runs-on: [self-hosted, linux, weather-security]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Execute internal security toolchain
+        run: ./scripts/security_scan.sh

@@ -1,0 +1,36 @@
+name: spec-validation
+
+on:
+  pull_request:
+    paths:
+      - 'specs/**'
+      - 'scripts/validate_specs.py'
+      - 'scripts/generate_traceability.py'
+      - 'artifacts/traceability.json'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, linux, weather-ci]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require internal package mirror
+        shell: bash
+        run: test -n "${{ vars.PYPI_MIRROR_URL }}"
+      - name: Create isolated environment
+        shell: bash
+        run: python3.12 -m venv .venv
+      - name: Install validation dependencies
+        shell: bash
+        env:
+          PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
+        run: .venv/bin/python -m pip install -e '.[dev]'
+      - name: Validate specifications and traceability
+        shell: bash
+        run: PATH="$PWD/.venv/bin:$PATH" make validate

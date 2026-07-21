@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:observation:1",
+  "title": "Canonical observation",
+  "type": "object",
+  "required": [
+    "observation_id", "phenomenon", "value", "unit", "geometry",
+    "observation_time", "ingestion_time", "quality_disposition", "quality_flags", "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "observation_id": {"type": "string", "format": "uuid"},
+    "phenomenon": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "value": {"type": ["number", "null"]},
+    "unit": {"type": "string", "minLength": 1},
+    "uncertainty": {"type": ["number", "null"], "minimum": 0},
+    "trace": {"type": "boolean", "default": false},
+    "geometry": {
+      "type": "object",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": {"const": "Point"},
+        "coordinates": {
+          "type": "array", "minItems": 2, "maxItems": 3,
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90},
+            {"type": "number"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "vertical_coordinate": {
+      "type": ["object", "null"],
+      "properties": {
+        "type": {"enum": ["height", "pressure", "depth", "model_level"]},
+        "value": {"type": "number"},
+        "unit": {"type": "string"}
+      },
+      "required": ["type", "value", "unit"],
+      "additionalProperties": false
+    },
+    "observation_time": {"type": "string", "format": "date-time"},
+    "ingestion_time": {"type": "string", "format": "date-time"},
+    "quality_disposition": {"enum": ["accept", "accept_with_flags", "quarantine", "reject"]},
+    "quality_flags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "provenance": {"$ref": "urn:weather:provenance:1"}
+  },
+  "additionalProperties": false
+}

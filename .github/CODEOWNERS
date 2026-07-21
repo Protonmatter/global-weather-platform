@@ -1,0 +1,6 @@
+/specs/                         @program-governance @scientific-review
+/schemas/                       @data-architecture
+/src/weather_platform/scientific/ @probabilistic-modeling @independent-verification
+/deploy/                        @platform-sre @security-architecture
+/.github/workflows/             @platform-sre @product-security
+/docs/NETWORK_BOUNDARY.md       @security-architecture

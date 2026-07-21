@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:spec-frontmatter:1",
+  "type": "object",
+  "required": ["spec_id", "title", "status", "owners", "standards", "requirements"],
+  "properties": {
+    "spec_id": {"type": "string", "pattern": "^SPEC-[0-9]{3}$"},
+    "title": {"type": "string", "minLength": 3},
+    "status": {"enum": ["draft", "review", "accepted", "implemented", "superseded", "retired"]},
+    "owners": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 2}},
+    "standards": {"type": "array", "items": {"type": "string"}},
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "statement", "priority", "verification", "release_gate"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Z]+-[A-Z]+-[0-9]{4}$"},
+          "statement": {"type": "string", "pattern": "\\b(MUST|MUST NOT|SHALL|SHALL NOT|SHOULD|SHOULD NOT|MAY)\\b"},
+          "priority": {"enum": ["critical", "high", "medium", "low"]},
+          "verification": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "release_gate": {"enum": ["governance", "architecture", "engineering", "scientific", "security", "operational", "ux"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

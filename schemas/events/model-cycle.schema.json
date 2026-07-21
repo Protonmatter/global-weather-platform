@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:event:model-cycle:1",
+  "title": "Model cycle event",
+  "type": "object",
+  "required": ["event_id", "model_id", "model_version", "initialized_at", "status", "emitted_at"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "model_id": {"type": "string"},
+    "model_version": {"type": "string"},
+    "initialized_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["queued", "running", "completed", "quarantined", "failed"]},
+    "emitted_at": {"type": "string", "format": "date-time"},
+    "artifact_digest": {"type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:provenance:1",
+  "title": "Provenance",
+  "type": "object",
+  "required": ["source_id", "source_record_digest", "ingested_at", "decoder_version"],
+  "properties": {
+    "source_id": {"type": "string", "minLength": 1},
+    "source_uri": {"type": ["string", "null"], "format": "uri"},
+    "source_published_at": {"type": ["string", "null"], "format": "date-time"},
+    "source_record_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "ingested_at": {"type": "string", "format": "date-time"},
+    "decoder_version": {"type": "string", "minLength": 1},
+    "license_id": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}
