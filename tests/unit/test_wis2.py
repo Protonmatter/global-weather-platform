@@ -215,6 +215,29 @@ def test_closed_polygon_geometry_is_accepted(tmp_path: Path) -> None:
     assert result.observations
 
 
+def test_mixed_temporal_description_is_rejected_before_fetch(tmp_path: Path) -> None:
+    payload = load_payload()
+    fetched: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        fetched.append(url)
+        return payload
+
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=RawSourceStore(tmp_path / "raw"),
+        fetch=fetch,
+    )
+    message = json.loads(notification_for(payload))
+    message["properties"]["start_datetime"] = "2026-07-20T17:00:00Z"
+    message["properties"]["end_datetime"] = "2026-07-20T18:00:00Z"
+
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+    assert fetched == []
+
+
 def test_interval_temporal_description_is_accepted(tmp_path: Path) -> None:
     payload = load_payload()
     consumer = consumer_for(tmp_path, payload)
