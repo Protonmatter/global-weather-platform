@@ -13,7 +13,7 @@
 - Canonical observation admission requires a retained source record
 - FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
-- Brier score, ensemble CRPS, reliability bins, quantile invariants
+- Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
 - Telemetry disabled by default and restricted to internal collector names
 - Deny-by-default Kubernetes network policy
@@ -23,8 +23,8 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 59 passed
-- Branch-aware coverage: 95.26%
+- Unit and contract tests: 63 passed
+- Branch-aware coverage: 95.35%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
