@@ -28,3 +28,34 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# Only pods labeled as the acquisition trust zone get any egress at all:
+# MQTT over TLS for WIS2 broker subscriptions, HTTPS for data downloads, and
+# cluster DNS. Production overlays MUST narrow the destination blocks to the
+# allowlisted providers per DATA-004.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: weather-platform-acquisition-egress
+  namespace: weather-platform
+spec:
+  podSelector:
+    matchLabels:
+      weather.trust-zone: acquisition
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 8883
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

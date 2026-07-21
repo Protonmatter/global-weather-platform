@@ -10,6 +10,7 @@
 - Append-only JSONL observation store
 - Content-addressed, write-once raw source record store
 - Source-record ingestion that retains raw bytes before decoding and binds provenance digests
+- Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
 - Canonical observation admission requires a retained source record
 - FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
@@ -23,15 +24,16 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 63 passed
-- Branch-aware coverage: 95.35%
+- Unit and contract tests: 71 passed
+- Branch-aware coverage: 95.54%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
 
 ## Explicitly not implemented yet
 
-- WIS2, GRIB2, BUFR, radar, satellite, or external NWP adapters
+- Live MQTT session and HTTP download wiring for the WIS2 consumer
+- GRIB2, BUFR, radar, satellite, or external NWP adapters
 - Object storage and indexed canonical storage
 - OGC API EDR implementation
 - Data assimilation
