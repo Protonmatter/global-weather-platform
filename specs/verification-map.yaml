@@ -1,0 +1,53 @@
+# Verification evidence registry.
+#
+# Every verification identifier referenced by a spec requirement must appear
+# here. Entries with status "implemented" must list evidence paths that exist
+# in the repository; "planned" entries document verifications that do not
+# exist yet. A spec whose front matter declares status "implemented" may only
+# reference implemented verifications. scripts/validate_specs.py enforces all
+# of this.
+verifications:
+  TEST-CONTRACT-0001:
+    status: planned
+    notes: No contract test yet distinguishes official, imported, platform, and experimental output.
+  TEST-TRACE-0001:
+    status: planned
+    notes: Release-unit binding of software, model, configuration, and evidence is not implemented.
+  TEST-SEC-0001:
+    status: planned
+    notes: The deny-by-default policy manifest exists but no automated check verifies it.
+  TEST-UNIT-0001:
+    status: implemented
+    evidence:
+      - tests/unit/test_raw_store.py
+      - tests/unit/test_ingest_pipeline.py
+      - tests/contract/test_api.py
+  TEST-UNIT-0002:
+    status: implemented
+    evidence:
+      - tests/unit/test_probability.py
+  TEST-UNIT-0003:
+    status: implemented
+    evidence:
+      - tests/unit/test_probability.py
+  TEST-UNIT-0004:
+    status: implemented
+    evidence:
+      - tests/unit/test_config.py
+  TEST-RES-0001:
+    status: planned
+    notes: Source-loss staleness behavior is not implemented.
+  TEST-SCHEMA-0001:
+    status: implemented
+    evidence:
+      - tests/contract/test_schema_conformance.py
+      - tests/unit/test_domain.py
+  TEST-SCI-0001:
+    status: planned
+    notes: Baseline comparison and temporally separated evaluation await calibration work.
+  TEST-SCI-0002:
+    status: planned
+    notes: Leakage prevention checks await the verification dataset ledger (SCI-001).
+  REPORT-SCORECARD-0001:
+    status: planned
+    notes: Sliced skill reporting awaits operational verification data.

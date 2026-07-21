@@ -1,18 +1,31 @@
-from collections.abc import AsyncIterator
+import threading
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Path, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from weather_platform import __version__
 from weather_platform.config import Settings
 from weather_platform.domain.models import Observation
+from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
+from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
+from weather_platform.storage.raw import RawSourceStore
 
 settings = Settings()
 store = JsonlObservationStore(settings.observation_path)
+raw_store = RawSourceStore(settings.raw_source_dir)
+adapter = JsonObservationAdapter()
+_ingest_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -28,18 +41,81 @@ app = FastAPI(
 )
 
 
+def problem_response(
+    request: Request,
+    *,
+    status_code: int,
+    problem_type: str,
+    title: str,
+    detail: str,
+    extra: dict[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
+    content: dict[str, Any] = {
+        "type": problem_type,
+        "title": title,
+        "status": status_code,
+        "detail": detail,
+        "instance": str(request.url.path),
+    }
+    if extra:
+        content.update(extra)
+    return JSONResponse(
+        status_code=status_code,
+        content=content,
+        media_type="application/problem+json",
+        headers=headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return problem_response(
+        request,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        problem_type="urn:weather:problem:invalid-request",
+        title="Invalid request",
+        detail="request validation failed",
+        extra={"errors": jsonable_encoder(exc.errors())},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    # Protocol headers such as Allow on 405 must survive the problem+json rewrite.
+    return problem_response(
+        request,
+        status_code=exc.status_code,
+        problem_type="about:blank",
+        title=HTTPStatus(exc.status_code).phrase,
+        detail=str(exc.detail),
+        headers=exc.headers,
+    )
+
+
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "type": "urn:weather:problem:invalid-value",
-            "title": "Invalid value",
-            "status": 422,
-            "detail": str(exc),
-            "instance": str(request.url.path),
-        },
-        media_type="application/problem+json",
+    # Client input failures surface as RequestValidationError before endpoints run,
+    # so a ValueError reaching this handler is a service-side fault, not a bad request.
+    return problem_response(
+        request,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        problem_type="urn:weather:problem:internal-error",
+        title="Internal error",
+        detail=str(exc),
+    )
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Keeps the problem+json contract for faults such as OSError from storage;
+    # the detail stays generic because arbitrary exception text may leak internals.
+    return problem_response(
+        request,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        problem_type="urn:weather:problem:internal-error",
+        title="Internal error",
+        detail="unexpected internal error",
     )
 
 
@@ -54,6 +130,46 @@ def health() -> dict[str, Any]:
     }
 
 
+def _admit_observations(observations: list[Observation]) -> None:
+    # A byte-identical redelivery decodes to an equal observation and is skipped;
+    # a differing record under an existing id is a conflict, never a silent drop.
+    # The whole batch is conflict-checked before any append so a rejected source
+    # record never leaves a partial batch behind. The check-then-append sequence
+    # must be atomic across threadpool workers; a process lock suffices because
+    # the service deploys as a single process.
+    with _ingest_lock:
+        existing = {
+            observation.observation_id: observation for observation in store.iter_observations()
+        }
+        to_append: list[Observation] = []
+        for observation in observations:
+            current = existing.get(observation.observation_id)
+            if current is None:
+                existing[observation.observation_id] = observation
+                to_append.append(observation)
+            elif current != observation:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"observation {observation.observation_id} conflicts with "
+                        f"an existing canonical record"
+                    ),
+                )
+        for observation in to_append:
+            store.append(observation)
+
+
+def _require_retained_source(digest: str) -> None:
+    if not raw_store.exists(digest):
+        raise HTTPException(
+            status_code=422,
+            detail="observation provenance must reference a retained source record",
+        )
+    # Integrity-verifies the retained bytes; corruption surfaces as an internal
+    # fault instead of admitting an observation whose source cannot be retrieved.
+    raw_store.retrieve(digest)
+
+
 @app.post("/v1/observations", status_code=status.HTTP_202_ACCEPTED)
 def create_observation(observation: Observation) -> dict[str, str]:
     if observation.quality_disposition.value == "reject":
@@ -61,8 +177,73 @@ def create_observation(observation: Observation) -> dict[str, str]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
-    store.append(observation)
+    _require_retained_source(observation.provenance.source_record_digest)
+    _admit_observations([observation])
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
+
+
+def _ingest_and_store(payload: bytes) -> dict[str, Any]:
+    try:
+        result = ingest_source_record(payload, adapter=adapter, raw_store=raw_store)
+    except SourceDecodeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if any(
+        observation.quality_disposition.value == "reject" for observation in result.observations
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="rejected observations cannot enter the canonical store",
+        )
+    _admit_observations(result.observations)
+    return {
+        "source_record_digest": result.source_record_digest,
+        "observation_ids": [str(observation.observation_id) for observation in result.observations],
+        "status": "accepted",
+    }
+
+
+@app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
+async def create_source_record(request: Request) -> dict[str, Any]:
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+    # Retention writes and fsyncs; run it off the event loop.
+    return await run_in_threadpool(_ingest_and_store, payload)
+
+
+def _verify_and_retain(payload: bytes, digest: str) -> bool:
+    """Retain the payload under its digest; return whether it was already retained."""
+    if sha256_digest(payload) != digest:
+        raise HTTPException(
+            status_code=422,
+            detail="payload does not match the requested source record digest",
+        )
+    already_retained = raw_store.exists(digest)
+    raw_store.store(payload)
+    return already_retained
+
+
+@app.put("/v1/source-records/{digest}")
+async def put_source_record(
+    request: Request, digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")
+) -> JSONResponse:
+    """Retain source bytes without decoding, for externally decoded observations."""
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+    # Hashing large payloads is CPU work; keep it off the event loop with the store.
+    already_retained = await run_in_threadpool(_verify_and_retain, payload, digest)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if already_retained else status.HTTP_201_CREATED,
+        content={"source_record_digest": digest, "status": "retained"},
+    )
+
+
+@app.get("/v1/source-records/{digest}")
+def get_source_record(digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")) -> Response:
+    if not raw_store.exists(digest):
+        raise HTTPException(status_code=404, detail="source record not found")
+    return Response(content=raw_store.retrieve(digest), media_type="application/octet-stream")
 
 
 @app.get("/v1/observations", response_model=list[Observation])

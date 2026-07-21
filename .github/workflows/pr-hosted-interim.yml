@@ -1,0 +1,35 @@
+# Interim quality gate on GitHub-hosted runners using public PyPI.
+# The authoritative gate is pr-fast.yml on internal weather-ci runners with the
+# internal package mirror; delete this workflow once those runners and
+# PYPI_MIRROR_URL exist. Until then this is the only check that actually runs.
+name: pr-hosted-interim
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require Python 3.12 from the runner image
+        run: python3 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+      - name: Create isolated environment
+        run: python3 -m venv .venv
+      - name: Install
+        run: .venv/bin/python -m pip install -e '.[dev]'
+      - name: Lint
+        run: PATH="$PWD/.venv/bin:$PATH" make lint
+      - name: Type check
+        run: PATH="$PWD/.venv/bin:$PATH" make typecheck
+      - name: Test
+        run: PATH="$PWD/.venv/bin:$PATH" make test
+      - name: Validate specifications, schemas, and traceability
+        run: PATH="$PWD/.venv/bin:$PATH" make validate
