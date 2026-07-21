@@ -25,6 +25,15 @@ work_items:
       - ecCodes table versions are pinned and recorded.
       - Malformed-message corpus is rejected or quarantined safely.
       - Decoder changes replay the golden corpus without unexplained semantic drift.
+  - id: DATA-004
+    title: Authenticated acquisition transport and upstream integrity verification
+    priority: P0
+    requirements: [DATA-RAW-0001, ARCH-NET-0001]
+    acceptance:
+      - Acquisition workers verify TLS against a per-source CA allowlist, record the observed issuer chain in provenance, and alert and fail closed on unexpected issuer or chain changes (interception indicators).
+      - Upstream-published checksums or signatures are verified before retention; mismatches quarantine the record and alert.
+      - Provenance records whether the retained digest was independently confirmed against upstream metadata or is platform-computed only.
+      - No acquisition path falls back to unauthenticated or unverified transport.
   - id: MODEL-001
     title: External GFS and GEFS cycle catalog
     priority: P0
