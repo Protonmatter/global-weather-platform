@@ -63,3 +63,21 @@ def test_model_and_schema_reject_the_same_records(mutation: dict[str, object]) -
     with pytest.raises(ValidationError):
         Observation.model_validate(record)
     assert list(observation_validator().iter_errors(record)) != []
+
+
+@pytest.mark.parametrize(
+    "provenance_mutation",
+    [
+        {"source_id": ""},
+        {"decoder_version": ""},
+        {"source_uri": "not a uri"},
+    ],
+)
+def test_model_and_schema_reject_the_same_provenance(provenance_mutation: dict[str, str]) -> None:
+    record = load_record()
+    provenance = record["provenance"]
+    assert isinstance(provenance, dict)
+    provenance.update(provenance_mutation)
+    with pytest.raises(ValidationError):
+        Observation.model_validate(record)
+    assert list(observation_validator().iter_errors(record)) != []

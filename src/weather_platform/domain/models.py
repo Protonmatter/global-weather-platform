@@ -2,7 +2,15 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AnyUrl,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class QualityDisposition(StrEnum):
@@ -46,12 +54,12 @@ class VerticalCoordinate(BaseModel):
 class Provenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_id: str
-    source_uri: str | None = None
+    source_id: str = Field(min_length=1)
+    source_uri: AnyUrl | None = None
     source_published_at: AwareDatetime | None = None
     source_record_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     ingested_at: AwareDatetime
-    decoder_version: str
+    decoder_version: str = Field(min_length=1)
     license_id: str | None = None
 
 

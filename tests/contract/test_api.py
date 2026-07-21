@@ -112,6 +112,56 @@ def test_source_record_ingestion_round_trip(tmp_path: Path, monkeypatch) -> None
     assert response.json()[0]["provenance"]["source_record_digest"] == digest
 
 
+def test_conflicting_source_record_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    assert client.post("/v1/source-records", content=payload).status_code == 202
+
+    conflicting = json.loads(payload)
+    conflicting["value"] = 999.0
+    response = client.post("/v1/source-records", content=json.dumps(conflicting).encode("utf-8"))
+    assert response.status_code == 409
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert "conflicts" in response.json()["detail"]
+    assert len(main.store.list()) == 1
+
+
+def test_conflicting_direct_observation_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    digest = sha256_digest(payload)
+    assert client.put(f"/v1/source-records/{digest}", content=payload).status_code == 201
+
+    record = json.loads(payload)
+    record["provenance"]["source_record_digest"] = digest
+    assert client.post("/v1/observations", json=record).status_code == 202
+    assert client.post("/v1/observations", json=record).status_code == 202
+
+    record["value"] = 999.0
+    response = client.post("/v1/observations", json=record)
+    assert response.status_code == 409
+    assert len(main.store.list()) == 1
+
+
+def test_tampered_retained_source_blocks_admission(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    digest = sha256_digest(payload)
+    assert client.put(f"/v1/source-records/{digest}", content=payload).status_code == 201
+
+    record_path = tmp_path / "raw" / digest.removeprefix("sha256:")
+    record_path.chmod(0o640)
+    record_path.write_bytes(b"tampered")
+
+    record = json.loads(payload)
+    record["provenance"]["source_record_digest"] = digest
+    response = client.post("/v1/observations", json=record)
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"] == "urn:weather:problem:internal-error"
+    assert main.store.list() == []
+
+
 def test_source_record_retry_does_not_duplicate_observations(tmp_path: Path, monkeypatch) -> None:
     client = isolated_client(tmp_path, monkeypatch)
     payload = (ROOT / "testdata/observations/temperature.json").read_bytes()

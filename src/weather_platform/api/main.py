@@ -126,6 +126,41 @@ def health() -> dict[str, Any]:
     }
 
 
+def _admit_observations(observations: list[Observation]) -> None:
+    # A byte-identical redelivery decodes to an equal observation and is skipped;
+    # a differing record under an existing id is a conflict, never a silent drop.
+    # The check-then-append pair must be atomic across threadpool workers; a
+    # process lock suffices because the service deploys as a single process.
+    with _ingest_lock:
+        existing = {
+            observation.observation_id: observation for observation in store.iter_observations()
+        }
+        for observation in observations:
+            current = existing.get(observation.observation_id)
+            if current is None:
+                store.append(observation)
+                existing[observation.observation_id] = observation
+            elif current != observation:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"observation {observation.observation_id} conflicts with "
+                        f"an existing canonical record"
+                    ),
+                )
+
+
+def _require_retained_source(digest: str) -> None:
+    if not raw_store.exists(digest):
+        raise HTTPException(
+            status_code=422,
+            detail="observation provenance must reference a retained source record",
+        )
+    # Integrity-verifies the retained bytes; corruption surfaces as an internal
+    # fault instead of admitting an observation whose source cannot be retrieved.
+    raw_store.retrieve(digest)
+
+
 @app.post("/v1/observations", status_code=status.HTTP_202_ACCEPTED)
 def create_observation(observation: Observation) -> dict[str, str]:
     if observation.quality_disposition.value == "reject":
@@ -133,12 +168,8 @@ def create_observation(observation: Observation) -> dict[str, str]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
-    if not raw_store.exists(observation.provenance.source_record_digest):
-        raise HTTPException(
-            status_code=422,
-            detail="observation provenance must reference a retained source record",
-        )
-    store.append(observation)
+    _require_retained_source(observation.provenance.source_record_digest)
+    _admit_observations([observation])
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
 
 
@@ -154,15 +185,7 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
-    # Redelivered source records are already retained by digest; skipping known
-    # observation ids keeps retries from duplicating canonical observations. The
-    # check-then-append pair must be atomic across threadpool workers; a process
-    # lock suffices because the service deploys as a single process.
-    with _ingest_lock:
-        existing_ids = {observation.observation_id for observation in store.iter_observations()}
-        for observation in result.observations:
-            if observation.observation_id not in existing_ids:
-                store.append(observation)
+    _admit_observations(result.observations)
     return {
         "source_record_digest": result.source_record_digest,
         "observation_ids": [str(observation.observation_id) for observation in result.observations],
