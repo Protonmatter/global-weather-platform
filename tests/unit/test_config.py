@@ -15,7 +15,26 @@ def test_public_otel_endpoint_is_rejected() -> None:
 
 
 def test_internal_otel_endpoint_is_accepted() -> None:
-    settings = Settings(
-        _env_file=None, internal_otel_endpoint="http://otel-collector.monitoring:4318"
-    )
-    assert settings.internal_otel_endpoint is not None
+    for endpoint in (
+        "http://otel-collector.monitoring:4318",
+        "http://otel-collector.monitoring.svc.cluster.local:4318",
+        "http://localhost:4318",
+    ):
+        settings = Settings(_env_file=None, internal_otel_endpoint=endpoint)
+        assert settings.internal_otel_endpoint == endpoint
+
+
+def test_lookalike_collector_host_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            internal_otel_endpoint="https://otel-collector.attacker.example/v1/traces",
+        )
+
+
+def test_collector_endpoint_with_credentials_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            internal_otel_endpoint="http://user:secret@otel-collector.monitoring:4318",
+        )

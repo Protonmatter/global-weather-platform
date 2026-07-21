@@ -1,7 +1,13 @@
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+INTERNAL_COLLECTOR_HOST = re.compile(
+    r"^otel-collector\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.svc(\.cluster\.local)?)?$"
+)
 
 
 class Settings(BaseSettings):
@@ -18,8 +24,10 @@ class Settings(BaseSettings):
     def validate_internal_otel_endpoint(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
-        permitted = ("http://otel-collector.", "https://otel-collector.", "http://localhost:")
-        if not value.startswith(permitted):
+        parts = urlsplit(value)
+        hostname = parts.hostname or ""
+        allowed_host = hostname == "localhost" or INTERNAL_COLLECTOR_HOST.match(hostname)
+        if parts.scheme not in {"http", "https"} or not allowed_host or parts.username is not None:
             raise ValueError("OpenTelemetry endpoint must identify an approved internal collector")
         return value
 
