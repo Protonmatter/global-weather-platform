@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from pydantic import ValidationError
-
 from weather_platform.domain.models import Observation
 from weather_platform.ingestion.base import ObservationAdapter
 from weather_platform.storage.raw import RawSourceStore
@@ -36,7 +34,9 @@ def ingest_source_record(
     digest = raw_store.store(payload)
     try:
         observations = adapter.decode(payload)
-    except ValidationError as exc:
+    except ValueError as exc:
+        # Covers json.JSONDecodeError and pydantic.ValidationError, both ValueError
+        # subclasses; adapter rejections are client decode failures, not faults.
         raise SourceDecodeError(digest) from exc
     for observation in observations:
         if observation.provenance.source_record_digest != digest:

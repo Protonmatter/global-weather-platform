@@ -51,7 +51,13 @@ def validate_verification_map(
             if not evidence:
                 failures.append(f"{map_name}: implemented {verification_id} lists no evidence")
             for item in evidence:
-                if not (ROOT / item).exists():
+                item_path = Path(item)
+                if item_path.is_absolute() or ".." in item_path.parts:
+                    failures.append(
+                        f"{map_name}: evidence {item} for {verification_id} "
+                        f"must be a repository-relative path"
+                    )
+                elif not (ROOT / item_path).exists():
                     failures.append(f"{map_name}: evidence {item} for {verification_id} not found")
     return failures
 

@@ -27,6 +27,15 @@ def test_source_record_is_retained_and_bound_to_observations(tmp_path: Path) -> 
     assert result.observations[0].provenance.source_record_digest == result.source_record_digest
 
 
+def test_client_digest_is_optional_and_superseded(tmp_path: Path) -> None:
+    record = json.loads(load_payload())
+    del record["provenance"]["source_record_digest"]
+    payload = json.dumps(record).encode("utf-8")
+    raw_store = RawSourceStore(tmp_path / "raw")
+    result = ingest_source_record(payload, adapter=JsonObservationAdapter(), raw_store=raw_store)
+    assert result.observations[0].provenance.source_record_digest == sha256_digest(payload)
+
+
 def test_undecodable_record_is_retained_before_failing(tmp_path: Path) -> None:
     raw_store = RawSourceStore(tmp_path / "raw")
     payload = b"not-a-canonical-observation"

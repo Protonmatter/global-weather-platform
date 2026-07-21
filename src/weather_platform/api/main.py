@@ -5,6 +5,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Path, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -98,6 +99,19 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
     )
 
 
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Keeps the problem+json contract for faults such as OSError from storage;
+    # the detail stays generic because arbitrary exception text may leak internals.
+    return problem_response(
+        request,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        problem_type="urn:weather:problem:internal-error",
+        title="Internal error",
+        detail="unexpected internal error",
+    )
+
+
 @app.get("/healthz")
 def health() -> dict[str, Any]:
     return {
@@ -120,11 +134,7 @@ def create_observation(observation: Observation) -> dict[str, str]:
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
 
 
-@app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
-async def create_source_record(request: Request) -> dict[str, Any]:
-    payload = await request.body()
-    if not payload:
-        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+def _ingest_and_store(payload: bytes) -> dict[str, Any]:
     try:
         result = ingest_source_record(payload, adapter=adapter, raw_store=raw_store)
     except SourceDecodeError as exc:
@@ -136,13 +146,26 @@ async def create_source_record(request: Request) -> dict[str, Any]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
+    # Redelivered source records are already retained by digest; skipping known
+    # observation ids keeps retries from duplicating canonical observations.
+    existing_ids = {observation.observation_id for observation in store.iter_observations()}
     for observation in result.observations:
-        store.append(observation)
+        if observation.observation_id not in existing_ids:
+            store.append(observation)
     return {
         "source_record_digest": result.source_record_digest,
         "observation_ids": [str(observation.observation_id) for observation in result.observations],
         "status": "accepted",
     }
+
+
+@app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
+async def create_source_record(request: Request) -> dict[str, Any]:
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+    # Retention writes and fsyncs; run it off the event loop.
+    return await run_in_threadpool(_ingest_and_store, payload)
 
 
 @app.get("/v1/source-records/{digest}")

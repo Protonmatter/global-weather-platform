@@ -78,6 +78,32 @@ def test_source_record_ingestion_round_trip(tmp_path: Path, monkeypatch) -> None
     assert response.json()[0]["provenance"]["source_record_digest"] == digest
 
 
+def test_source_record_retry_does_not_duplicate_observations(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+
+    first = client.post("/v1/source-records", content=payload)
+    second = client.post("/v1/source-records", content=payload)
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json() == first.json()
+    assert len(main.store.list()) == 1
+
+
+def test_unexpected_fault_returns_problem_details(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+
+    def broken_list(phenomenon: str | None = None, limit: int = 100) -> list:
+        raise OSError("disk failure")
+
+    monkeypatch.setattr(main.store, "list", broken_list)
+    client = TestClient(main.app, raise_server_exceptions=False)
+    response = client.get("/v1/observations")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["detail"] == "unexpected internal error"
+
+
 def test_undecodable_source_record_is_retained_and_rejected(tmp_path: Path, monkeypatch) -> None:
     client = isolated_client(tmp_path, monkeypatch)
     payload = b"not-a-canonical-observation"

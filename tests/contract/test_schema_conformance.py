@@ -24,7 +24,11 @@ def observation_validator() -> Draft202012Validator:
             ("urn:weather:provenance:1", Resource.from_contents(provenance)),
         ]
     )
-    return Draft202012Validator(observation, registry=registry)
+    return Draft202012Validator(
+        observation,
+        registry=registry,
+        format_checker=Draft202012Validator.FORMAT_CHECKER,
+    )
 
 
 def load_record() -> dict[str, object]:

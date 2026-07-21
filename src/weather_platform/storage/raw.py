@@ -31,12 +31,14 @@ class RawSourceStore:
     def store(self, payload: bytes) -> str:
         """Retain the payload and return its content-addressed digest.
 
-        Storing bytes that are already retained is a no-op; retained records
-        are never rewritten.
+        Storing bytes that are already retained verifies the retained copy and
+        is otherwise a no-op; retained records are never rewritten.
         """
         digest = sha256_digest(payload)
         destination = self._path_for(digest)
         if destination.exists():
+            if sha256_digest(destination.read_bytes()) != digest:
+                raise ValueError(f"retained source record {digest} failed integrity verification")
             return digest
         with NamedTemporaryFile("wb", dir=self.root, delete=False) as tmp:
             temporary_path = Path(tmp.name)
@@ -45,7 +47,16 @@ class RawSourceStore:
             os.fsync(tmp.fileno())
         temporary_path.chmod(0o440)
         temporary_path.replace(destination)
+        self._fsync_root()
         return digest
+
+    def _fsync_root(self) -> None:
+        # Rename durability requires syncing the containing directory on POSIX.
+        directory_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     def exists(self, digest: str) -> bool:
         return self._path_for(self._validate_digest(digest)).exists()

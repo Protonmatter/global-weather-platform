@@ -41,3 +41,13 @@ def test_retrieve_verifies_integrity(tmp_path: Path) -> None:
     record_path.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="integrity"):
         store.retrieve(digest)
+
+
+def test_store_verifies_existing_record(tmp_path: Path) -> None:
+    store = RawSourceStore(tmp_path / "raw")
+    digest = store.store(b"original")
+    record_path = tmp_path / "raw" / digest.removeprefix("sha256:")
+    record_path.chmod(0o640)
+    record_path.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="integrity"):
+        store.store(b"original")
