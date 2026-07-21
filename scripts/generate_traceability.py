@@ -21,6 +21,12 @@ def collect() -> dict[str, Any]:
         if not match:
             continue
         data = yaml.safe_load(match.group(1))
+        # Malformed front matter is validate_specs.py's finding to report;
+        # traceability generation must not crash on it.
+        if not isinstance(data, dict) or any(
+            key not in data for key in ("spec_id", "status", "standards", "requirements")
+        ):
+            continue
         specs.append(
             {
                 "spec_id": data["spec_id"],

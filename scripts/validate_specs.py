@@ -85,7 +85,12 @@ def main() -> int:
             location = ".".join(str(item) for item in error.path)
             failures.append(f"{path.relative_to(ROOT)}:{location}: {error.message}")
         spec_status = data.get("status")
-        for requirement in data.get("requirements", []):
+        requirements = data.get("requirements")
+        for requirement in requirements if isinstance(requirements, list) else []:
+            # Schema validation above reports malformed requirements; skip them
+            # here so one bad entry yields a finding instead of a traceback.
+            if not isinstance(requirement, dict) or not isinstance(requirement.get("id"), str):
+                continue
             requirement_id = requirement["id"]
             previous = seen_requirements.get(requirement_id)
             if previous is not None:
@@ -94,7 +99,8 @@ def main() -> int:
                     f"{previous.relative_to(ROOT)} and {path.relative_to(ROOT)}"
                 )
             seen_requirements[requirement_id] = path
-            for verification_id in requirement.get("verification", []):
+            verifications = requirement.get("verification")
+            for verification_id in verifications if isinstance(verifications, list) else []:
                 referenced_verifications.add(verification_id)
                 entry = verification_map.get(verification_id)
                 if entry is None:
