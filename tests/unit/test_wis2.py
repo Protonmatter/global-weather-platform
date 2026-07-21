@@ -31,6 +31,7 @@ def load_payload() -> bytes:
 def notification_for(payload: bytes, *, integrity: bool = True, method: str = "sha256") -> bytes:
     message = {
         "id": "8bb4b78d-4b21-4a71-9d99-6dd2f6b2c0a4",
+        "conformsTo": ["http://wis.wmo.int/spec/wnm/1/conf/core"],
         "type": "Feature",
         "geometry": None,
         "properties": {
@@ -93,6 +94,7 @@ def test_notification_round_trip_binds_distinct_times(tmp_path: Path) -> None:
     assert provenance.received_at == RECEIVED_AT
     times = {provenance.source_published_at, provenance.received_at, provenance.ingested_at}
     assert len(times) == 3
+    assert provenance.digest_verification.value == "upstream"
 
 
 def test_integrity_mismatch_fails_closed_but_retains_evidence(tmp_path: Path) -> None:
@@ -135,6 +137,30 @@ def test_missing_integrity_is_recorded_as_unverified(tmp_path: Path) -> None:
     consumer = consumer_for(tmp_path, payload)
     result = consumer.process(TOPIC, notification_for(payload, integrity=False), RECEIVED_AT)
     assert result.upstream_integrity_verified is False
+    assert result.observations[0].provenance.digest_verification.value == "platform"
+
+
+def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    missing_marker = json.loads(notification_for(payload))
+    del missing_marker["conformsTo"]
+    missing_geometry = json.loads(notification_for(payload))
+    del missing_geometry["geometry"]
+    for message in (missing_marker, missing_geometry):
+        with pytest.raises(Wis2NotificationError):
+            consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+
+def test_canonical_link_with_credentials_is_rejected(tmp_path: Path) -> None:
+    payload = load_payload()
+    consumer = consumer_for(tmp_path, payload)
+    message = json.loads(notification_for(payload))
+    message["links"] = [
+        {"href": "https://user:secret@gts.example/data/temperature.json", "rel": "canonical"}
+    ]
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
 
 
 def test_malformed_notification_is_retained_before_failing(tmp_path: Path) -> None:

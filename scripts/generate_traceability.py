@@ -21,12 +21,15 @@ def collect() -> dict[str, Any]:
         if not match:
             continue
         data = yaml.safe_load(match.group(1))
-        # Malformed front matter is validate_specs.py's finding to report;
-        # traceability generation must not crash on it.
+        # Skipping a malformed spec would silently regenerate an incomplete
+        # artifact with exit 0; fail cleanly and point at the validator instead.
         if not isinstance(data, dict) or any(
             key not in data for key in ("spec_id", "status", "standards", "requirements")
         ):
-            continue
+            raise SystemExit(
+                f"malformed spec front matter in {path.relative_to(ROOT)}; "
+                f"run scripts/validate_specs.py for details"
+            )
         specs.append(
             {
                 "spec_id": data["spec_id"],

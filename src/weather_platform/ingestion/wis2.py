@@ -5,11 +5,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from weather_platform.domain.models import Observation
+from weather_platform.domain.models import DigestVerification, Observation
 from weather_platform.ingestion.base import ObservationAdapter
 from weather_platform.ingestion.pipeline import ingest_source_record
 from weather_platform.storage.raw import RawSourceStore
@@ -68,24 +69,32 @@ class Wis2Notification(BaseModel):
     """Subset of the WIS2 Notification Message needed for acquisition.
 
     Notifications are produced externally and evolve, so unknown fields are
-    ignored rather than rejected.
+    ignored rather than rejected; the required WNM envelope (GeoJSON geometry
+    and a conformance marker) still gates every fetch.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     id: UUID
     type: str = Field(pattern="^Feature$")
+    geometry: dict[str, Any] | None
+    conforms_to: list[str] | None = Field(default=None, alias="conformsTo")
+    version: str | None = None
     properties: Wis2Properties
     links: list[Wis2Link] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_canonical_link(self) -> "Wis2Notification":
+    def validate_envelope(self) -> "Wis2Notification":
+        if not self.conforms_to and not self.version:
+            raise ValueError("notification must declare conformsTo or a legacy version")
         canonical = [link for link in self.links if link.rel == "canonical"]
         if len(canonical) != 1:
             raise ValueError("notification must carry exactly one canonical link")
-        # No acquisition path may fall back to unauthenticated transport (DATA-004).
-        if canonical[0].href.scheme != "https":
-            raise ValueError("canonical link must use https")
+        # No acquisition path may fall back to unauthenticated transport
+        # (DATA-004), and credentials never enter provenance records.
+        href = canonical[0].href
+        if href.scheme != "https" or href.username is not None or href.password is not None:
+            raise ValueError("canonical link must use https without embedded credentials")
         return self
 
     @property
@@ -163,7 +172,7 @@ class Wis2NotificationConsumer:
 
         result = ingest_source_record(payload, adapter=self._adapter, raw_store=self._raw_store)
         observations = [
-            self._bind_provenance(observation, message, received_at)
+            self._bind_provenance(observation, message, received_at, verified=verified)
             for observation in result.observations
         ]
         return Wis2IngestResult(
@@ -193,7 +202,11 @@ class Wis2NotificationConsumer:
 
     @staticmethod
     def _bind_provenance(
-        observation: Observation, message: Wis2Notification, received_at: AwareDatetime
+        observation: Observation,
+        message: Wis2Notification,
+        received_at: AwareDatetime,
+        *,
+        verified: bool,
     ) -> Observation:
         provenance = observation.provenance.model_copy(
             update={
@@ -201,6 +214,11 @@ class Wis2NotificationConsumer:
                 "source_uri": message.canonical_link.href,
                 "source_published_at": message.properties.pubtime,
                 "received_at": received_at,
+                # Durable trust state: whether the retained digest was confirmed
+                # against upstream metadata or is platform-computed only.
+                "digest_verification": (
+                    DigestVerification.UPSTREAM if verified else DigestVerification.PLATFORM
+                ),
             }
         )
         return observation.model_copy(update={"provenance": provenance})
