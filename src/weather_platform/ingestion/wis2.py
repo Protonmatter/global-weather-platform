@@ -116,12 +116,18 @@ class Wis2Properties(BaseModel):
 
     @model_validator(mode="after")
     def validate_temporal_description(self) -> "Wis2Properties":
-        # WNM requires an instant or a complete interval; a lone bound is malformed.
+        # WNM temporal metadata is an exclusive choice: one instant or one
+        # complete interval. Reject mixed and partial descriptions before fetch.
         bounds = (self.start_datetime is not None) + (self.end_datetime is not None)
-        if bounds == 1:
-            raise ValueError("interval notifications require both start and end datetimes")
-        if self.observed_datetime is None and bounds == 0:
-            raise ValueError("notification properties must describe observation time")
+        if self.observed_datetime is not None:
+            if bounds != 0:
+                raise ValueError(
+                    "notification properties must not mix datetime with an interval"
+                )
+        elif bounds != 2:
+            raise ValueError(
+                "notification properties require datetime or both interval bounds"
+            )
         return self
 
 
