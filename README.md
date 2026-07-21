@@ -32,11 +32,16 @@ The API starts at `http://127.0.0.1:8080`.
 
 ```bash
 curl -s http://127.0.0.1:8080/healthz
-curl -s -X POST http://127.0.0.1:8080/v1/observations \
+curl -s -X POST http://127.0.0.1:8080/v1/source-records \
   -H 'content-type: application/json' \
-  --data @testdata/observations/temperature.json
+  --data-binary @testdata/observations/temperature.json
 curl -s 'http://127.0.0.1:8080/v1/observations?phenomenon=air_temperature'
 ```
+
+`POST /v1/source-records` retains the raw record before decoding it. Canonical
+observations posted directly to `POST /v1/observations` must reference an
+already-retained source record; deposit undecoded bytes first with
+`PUT /v1/source-records/{digest}`.
 
 ## Engineering rules
 

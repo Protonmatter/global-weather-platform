@@ -10,6 +10,7 @@
 - Append-only JSONL observation store
 - Content-addressed, write-once raw source record store
 - Source-record ingestion that retains raw bytes before decoding and binds provenance digests
+- Canonical observation admission requires a retained source record
 - FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS, reliability bins, quantile invariants
@@ -22,8 +23,8 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 49 passed
-- Branch-aware coverage: 95.30%
+- Unit and contract tests: 51 passed
+- Branch-aware coverage: 95.09%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed

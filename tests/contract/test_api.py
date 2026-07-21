@@ -19,16 +19,49 @@ def isolated_client(tmp_path: Path, monkeypatch) -> TestClient:
 
 
 def test_observation_round_trip(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
-    client = TestClient(main.app)
-    record = json.loads((ROOT / "testdata/observations/temperature.json").read_text())
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    digest = sha256_digest(payload)
 
+    response = client.put(f"/v1/source-records/{digest}", content=payload)
+    assert response.status_code == 201
+
+    record = json.loads(payload)
+    record["provenance"]["source_record_digest"] = digest
     response = client.post("/v1/observations", json=record)
     assert response.status_code == 202
 
     response = client.get("/v1/observations", params={"phenomenon": "air_temperature"})
     assert response.status_code == 200
     assert response.json()[0]["observation_id"] == record["observation_id"]
+
+
+def test_observation_requires_retained_source_record(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    record = json.loads((ROOT / "testdata/observations/temperature.json").read_text())
+
+    response = client.post("/v1/observations", json=record)
+    assert response.status_code == 422
+    assert "retained source record" in response.json()["detail"]
+    assert main.store.list() == []
+
+
+def test_raw_deposit_is_idempotent_and_digest_checked(tmp_path: Path, monkeypatch) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = b'{"source": "external-decoder-record"}'
+    digest = sha256_digest(payload)
+
+    first = client.put(f"/v1/source-records/{digest}", content=payload)
+    second = client.put(f"/v1/source-records/{digest}", content=payload)
+    assert first.status_code == 201
+    assert second.status_code == 200
+
+    response = client.get(f"/v1/source-records/{digest}")
+    assert response.content == payload
+
+    mismatch = client.put(f"/v1/source-records/sha256:{'0' * 64}", content=payload)
+    assert mismatch.status_code == 422
+    assert "does not match" in mismatch.json()["detail"]
 
 
 def test_health_discloses_control_state() -> None:

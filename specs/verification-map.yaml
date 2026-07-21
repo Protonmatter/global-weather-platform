@@ -21,6 +21,7 @@ verifications:
     evidence:
       - tests/unit/test_raw_store.py
       - tests/unit/test_ingest_pipeline.py
+      - tests/contract/test_api.py
   TEST-UNIT-0002:
     status: implemented
     evidence:

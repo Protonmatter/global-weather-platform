@@ -17,6 +17,7 @@ from weather_platform.config import Settings
 from weather_platform.domain.models import Observation
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
 from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
 from weather_platform.storage.raw import RawSourceStore
 
@@ -132,6 +133,11 @@ def create_observation(observation: Observation) -> dict[str, str]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
+    if not raw_store.exists(observation.provenance.source_record_digest):
+        raise HTTPException(
+            status_code=422,
+            detail="observation provenance must reference a retained source record",
+        )
     store.append(observation)
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
 
@@ -171,6 +177,27 @@ async def create_source_record(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
     # Retention writes and fsyncs; run it off the event loop.
     return await run_in_threadpool(_ingest_and_store, payload)
+
+
+@app.put("/v1/source-records/{digest}")
+async def put_source_record(
+    request: Request, digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")
+) -> JSONResponse:
+    """Retain source bytes without decoding, for externally decoded observations."""
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=422, detail="source record payload must not be empty")
+    if sha256_digest(payload) != digest:
+        raise HTTPException(
+            status_code=422,
+            detail="payload does not match the requested source record digest",
+        )
+    already_retained = raw_store.exists(digest)
+    await run_in_threadpool(raw_store.store, payload)
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if already_retained else status.HTTP_201_CREATED,
+        content={"source_record_digest": digest, "status": "retained"},
+    )
 
 
 @app.get("/v1/source-records/{digest}")

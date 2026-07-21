@@ -263,7 +263,8 @@
     "TEST-UNIT-0001": {
       "evidence": [
         "tests/unit/test_raw_store.py",
-        "tests/unit/test_ingest_pipeline.py"
+        "tests/unit/test_ingest_pipeline.py",
+        "tests/contract/test_api.py"
       ],
       "status": "implemented"
     },
