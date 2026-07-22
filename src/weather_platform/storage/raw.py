@@ -135,6 +135,11 @@ class RawSourceStore:
             os.close(directory_fd)
 
     def exists(self, digest: str) -> bool:
+        """Return whether the digest is retained; pathological entries raise.
+
+        A non-regular file or oversized record at the digest path is an
+        integrity fault, not absence, and surfaces as ValueError.
+        """
         validated = self._validate_digest(digest)
         descriptor = self._open_regular_file(self._path_for(validated), validated)
         if descriptor is None:

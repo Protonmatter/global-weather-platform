@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,7 @@ def test_store_verifies_existing_record(tmp_path: Path) -> None:
         store.store(b"original")
 
 
-@pytest.mark.parametrize("entry_type", ["symlink", "directory"])
+@pytest.mark.parametrize("entry_type", ["symlink", "directory", "fifo"])
 def test_non_regular_digest_entry_fails_closed(tmp_path: Path, entry_type: str) -> None:
     store = RawSourceStore(tmp_path / "raw")
     payload = b"source-record"
@@ -63,8 +64,10 @@ def test_non_regular_digest_entry_fails_closed(tmp_path: Path, entry_type: str) 
         target = tmp_path / "attacker-controlled"
         target.write_bytes(payload)
         record_path.symlink_to(target)
-    else:
+    elif entry_type == "directory":
         record_path.mkdir()
+    else:
+        os.mkfifo(record_path)
 
     with pytest.raises(ValueError, match="regular file"):
         store.exists(digest)
