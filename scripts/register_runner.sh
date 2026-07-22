@@ -12,6 +12,13 @@ set -euo pipefail
 : "${RUNNER_VERSION:?set RUNNER_VERSION to the version shown by the repository runner setup page}"
 : "${RUNNER_SHA256:?set RUNNER_SHA256 to the official SHA-256 shown for that runner package}"
 
+EXPECTED_RUNNER_URL="https://github.com/Protonmatter/global-weather-platform"
+if [[ "${RUNNER_URL%/}" != "$EXPECTED_RUNNER_URL" ]]; then
+  echo "RUNNER_URL must be ${EXPECTED_RUNNER_URL}." >&2
+  exit 1
+fi
+RUNNER_URL="$EXPECTED_RUNNER_URL"
+
 if [[ ! "$RUNNER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "RUNNER_VERSION must be a semantic version without a leading v (for example, 2.334.0)." >&2
   exit 1
