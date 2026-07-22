@@ -28,11 +28,15 @@
 
 - Specification validation: 19 requirements and 13 verification references
 - JSON Schema meta-validation: 5 schemas
-- Unit and contract tests: 130 passed
-- Branch-aware coverage: 94.38%
+- Unit and contract tests: 135 passed
+- Branch-aware coverage: 94.55%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
+
+## Partially implemented
+
+- Acquisition transport integrity: issuer-allowlist verification, fail-closed on unpinned issuers, and upstream-checksum verification are implemented and tested; live MQTT/HTTPS acquisition wiring awaits a deployment target
 
 ## Explicitly not implemented yet
 

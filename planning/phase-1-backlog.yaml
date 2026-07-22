@@ -28,6 +28,8 @@ work_items:
   - id: DATA-004
     title: Authenticated acquisition transport and upstream integrity verification
     priority: P0
+    status: partial
+    status_note: Issuer-allowlist, fail-closed, and upstream-checksum verification logic implemented and tested; live MQTT/HTTPS acquisition wiring that supplies the observed chain awaits a deployment target.
     requirements: [DATA-RAW-0001, ARCH-NET-0001]
     acceptance:
       - Acquisition workers verify TLS against a per-source CA allowlist, record the observed issuer chain in provenance, and alert and fail closed on unexpected issuer or chain changes (interception indicators).
