@@ -1,10 +1,16 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from weather_platform.domain.models import Observation
 from weather_platform.storage.jsonl import JsonlObservationStore
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_observation() -> Observation:
+    record = json.loads((ROOT / "testdata/observations/temperature.json").read_text())
+    return Observation.model_validate(record)
 
 
 def test_append_and_filter(tmp_path: Path) -> None:
@@ -43,3 +49,23 @@ def test_store_reports_corrupt_line(tmp_path: Path) -> None:
 def test_empty_store(tmp_path: Path) -> None:
     store = JsonlObservationStore(tmp_path / "missing.jsonl")
     assert store.list() == []
+
+
+def test_transaction_is_reentrant(tmp_path: Path) -> None:
+    store = JsonlObservationStore(tmp_path / "observations.jsonl")
+    observation = load_observation()
+    # append() takes the transaction internally; nesting it must not deadlock.
+    with store.transaction():
+        store.append(observation)
+        with store.transaction():
+            store.append(observation)
+    assert len(store.list(include_quarantined=True)) == 2
+
+
+def test_concurrent_appends_do_not_corrupt_the_store(tmp_path: Path) -> None:
+    store = JsonlObservationStore(tmp_path / "observations.jsonl")
+    observation = load_observation()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda _: store.append(observation), range(40)))
+    # Every line parses: no interleaved or torn writes under the lock.
+    assert len(store.list(include_quarantined=True)) == 40

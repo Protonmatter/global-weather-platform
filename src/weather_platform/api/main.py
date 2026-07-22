@@ -1,4 +1,3 @@
-import threading
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -28,7 +27,6 @@ raw_store = RawSourceStore(
     max_record_bytes=settings.max_source_record_bytes,
 )
 adapter = JsonObservationAdapter()
-_ingest_lock = threading.Lock()
 
 
 @asynccontextmanager
@@ -157,10 +155,9 @@ def _admit_observations(observations: list[Observation]) -> None:
     # A redelivery with identical content is skipped; a differing record under
     # an existing id is a conflict, never a silent drop. The whole batch is
     # conflict-checked before any append so a rejected source record never
-    # leaves a partial batch behind. The check-then-append sequence must be
-    # atomic across threadpool workers; a process lock suffices because the
-    # service deploys as a single process.
-    with _ingest_lock:
+    # leaves a partial batch behind. The store transaction makes the
+    # check-then-append atomic across both threadpool workers and processes.
+    with store.transaction():
         existing = {
             observation.observation_id: observation for observation in store.iter_observations()
         }
@@ -303,8 +300,12 @@ def get_source_record(digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")) -> R
 def list_observations(
     phenomenon: str | None = Query(default=None, pattern=r"^[a-z][a-z0-9_]*$"),
     limit: int = Query(default=100, ge=1, le=10_000),
+    include_quarantined: bool = Query(
+        default=False,
+        description="Include observations held in quarantine pending quality review.",
+    ),
 ) -> list[Observation]:
-    return store.list(phenomenon=phenomenon, limit=limit)
+    return store.list(phenomenon=phenomenon, limit=limit, include_quarantined=include_quarantined)
 
 
 def run() -> None:
