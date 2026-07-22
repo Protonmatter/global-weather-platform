@@ -67,10 +67,11 @@ workflows.
    | `RUNNER_AS_SERVICE` | `false` | install and start as a systemd service when `true` |
    | `RUNNER_ALLOW_RUNASROOT` | unset | permit running as root (discouraged) |
 
-   The service installation invokes `sudo`; give the dedicated account only the
-   elevation needed to install and manage this runner service. Do not place the
-   registration token in shell history, GitHub comments, workflow logs, or
-   tickets.
+   The service installation invokes `sudo` and should run under supervised
+   administrator elevation. Do not grant persistent passwordless sudo access to
+   `svc.sh` or any other script under the user-writable `RUNNER_DIR`. Do not
+   place the registration token in shell history, GitHub comments, workflow
+   logs, or tickets.
 
 4. To cover more than one lane on the same host, register with multiple labels,
    e.g. `RUNNER_LABELS=weather-ci,weather-build`. The release lane additionally
