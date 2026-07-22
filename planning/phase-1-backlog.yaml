@@ -46,6 +46,7 @@ work_items:
   - id: API-001
     title: OGC API EDR position query
     priority: P1
+    status: implemented
     requirements: [DATA-GEO-0002]
     acceptance:
       - Position and datetime subset queries pass contract tests.

@@ -31,3 +31,5 @@ requirements:
 Canonical records preserve semantic support: point versus area, instant versus interval, vertical coordinate, valid time, uncertainty, and source lineage.
 
 Observations decoded from a retained source record derive their identifier deterministically from the source-record digest, decoder version, and record index. Identity is therefore a function of content: redelivery is idempotent, distinct sources cannot collide, and re-decoding under a new decoder version produces a new derived record. Supersession of corrected records is a future slice.
+
+Position queries treat longitude on a wrapped circle: the longitude difference between a query point and an observation is reduced modulo 360 into [0, 180], so a query near the antimeridian matches observations on the other side of +/-180 rather than treating them as nearly a full turn away.

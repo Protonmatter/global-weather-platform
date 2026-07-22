@@ -15,6 +15,7 @@
 - Quarantined observations retained and queryable but held out of the default serving path
 - Model guidance catalog with the four-way guidance distinction (imported, platform, official-warning, experimental) and explicit missing/partial cycle completeness
 - FastAPI health, ingest, source-record, model-cycle, and query endpoints
+- OGC API EDR position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
@@ -27,8 +28,8 @@
 
 - Specification validation: 19 requirements and 13 verification references
 - JSON Schema meta-validation: 5 schemas
-- Unit and contract tests: 120 passed
-- Branch-aware coverage: 94.10%
+- Unit and contract tests: 130 passed
+- Branch-aware coverage: 94.38%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
