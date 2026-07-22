@@ -6,7 +6,11 @@ import pytest
 from weather_platform.domain.models import Observation
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
 from weather_platform.ingestion.base import ObservationAdapter
-from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
+from weather_platform.ingestion.pipeline import (
+    SourceDecodeError,
+    derive_observation_id,
+    ingest_source_record,
+)
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.raw import RawSourceStore
 
@@ -25,6 +29,29 @@ def test_source_record_is_retained_and_bound_to_observations(tmp_path: Path) -> 
     assert raw_store.retrieve(result.source_record_digest) == payload
     assert len(result.observations) == 1
     assert result.observations[0].provenance.source_record_digest == result.source_record_digest
+
+
+def test_observation_id_is_derived_from_source_and_supersedes_payload(tmp_path: Path) -> None:
+    payload = load_payload()
+    digest = sha256_digest(payload)
+    decoder_version = json.loads(payload)["provenance"]["decoder_version"]
+    expected = derive_observation_id(digest, decoder_version, 0)
+
+    raw_store = RawSourceStore(tmp_path / "raw")
+    result = ingest_source_record(payload, adapter=JsonObservationAdapter(), raw_store=raw_store)
+    assert result.observations[0].observation_id == expected
+    # The payload's own observation_id is ignored in favor of the derived one.
+    assert str(expected) != json.loads(payload)["observation_id"]
+
+
+def test_redelivery_derives_the_same_id_new_decoder_derives_a_new_id(tmp_path: Path) -> None:
+    payload = load_payload()
+    digest = sha256_digest(payload)
+    first = derive_observation_id(digest, "json-observation-adapter/0.1.0", 0)
+    again = derive_observation_id(digest, "json-observation-adapter/0.1.0", 0)
+    newer = derive_observation_id(digest, "json-observation-adapter/0.2.0", 0)
+    assert first == again
+    assert first != newer
 
 
 def test_client_digest_is_optional_and_superseded(tmp_path: Path) -> None:

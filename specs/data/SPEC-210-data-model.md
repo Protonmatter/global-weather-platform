@@ -29,3 +29,5 @@ requirements:
 # Canonical data model
 
 Canonical records preserve semantic support: point versus area, instant versus interval, vertical coordinate, valid time, uncertainty, and source lineage.
+
+Observations decoded from a retained source record derive their identifier deterministically from the source-record digest, decoder version, and record index. Identity is therefore a function of content: redelivery is idempotent, distinct sources cannot collide, and re-decoding under a new decoder version produces a new derived record. Supersession of corrected records is a future slice.
