@@ -31,36 +31,52 @@ workflows.
 
 ## Registering a runner
 
-1. In the repository, open **Settings → Actions → Runners → New self-hosted
-   runner** and copy the registration token (it is short-lived).
-2. On a Linux x64 host that has `python3.12` and outbound PyPI access, run:
+1. Set `PYPI_MIRROR_URL` under **Settings → Actions → Variables** before
+   registering a runner with the `weather-ci` label. Otherwise `pr-fast` and
+   `spec-validation` will dispatch and fail closed at their mirror checks.
+2. Open **Settings → Actions → Runners → New self-hosted runner**. Copy the
+   short-lived registration token, the runner version offered to this
+   repository, and the SHA-256 for the Linux x64 package. GitHub rolls runner
+   releases out progressively, so use the repository setup page rather than
+   assuming the newest public release has reached this repository.
+3. On a Linux x64 host that has `python3.12` and approved package egress, run as
+   a dedicated non-root account:
 
    ```bash
    RUNNER_URL=https://github.com/Protonmatter/global-weather-platform \
    RUNNER_TOKEN=<registration-token> \
    RUNNER_LABELS=weather-ci \
+   RUNNER_VERSION=<version-from-repository-setup-page> \
+   RUNNER_SHA256=<official-linux-x64-sha256> \
+   RUNNER_AS_SERVICE=true \
    scripts/register_runner.sh
    ```
 
-   `scripts/register_runner.sh` downloads the runner release, configures it
-   unattended, and starts it. Useful overrides (all optional):
+   `scripts/register_runner.sh` downloads the selected runner release over
+   HTTPS, verifies the tarball before extraction, configures it unattended, and
+   installs it as a service in the recommended example. It refuses to run as
+   root by default and never persists the registration token.
 
    | Variable | Default | Purpose |
    | --- | --- | --- |
    | `RUNNER_LABELS` | `weather-ci` | comma-separated extra labels |
    | `RUNNER_NAME` | `<hostname>-weather` | runner name shown in Settings |
-   | `RUNNER_VERSION` | pinned in the script | actions/runner release |
-   | `RUNNER_SHA256` | unset | verify the downloaded tarball checksum |
+   | `RUNNER_VERSION` | required | version offered on the repository runner setup page |
+   | `RUNNER_SHA256` | required | official SHA-256 for the selected Linux x64 tarball |
    | `RUNNER_DIR` | `$HOME/actions-runner` | install location |
-   | `RUNNER_AS_SERVICE` | `false` | install and start as a systemd service |
+   | `RUNNER_AS_SERVICE` | `false` | install and start as a systemd service when `true` |
    | `RUNNER_ALLOW_RUNASROOT` | unset | permit running as root (discouraged) |
 
-   Prefer a dedicated non-root user. Set `RUNNER_SHA256` to the checksum from the
-   runner release notes so a tampered download fails closed.
+   The service installation invokes `sudo`; give the dedicated account only the
+   elevation needed to install and manage this runner service. Do not place the
+   registration token in shell history, GitHub comments, workflow logs, or
+   tickets.
 
-3. To cover more than one lane on the same host, register with multiple labels,
+4. To cover more than one lane on the same host, register with multiple labels,
    e.g. `RUNNER_LABELS=weather-ci,weather-build`. The release lane additionally
-   needs Docker and the internal registry variables.
+   needs Docker and the internal registry variables. Separate runner groups or
+   hosts are preferred where release signing and deep security scanning require
+   different trust boundaries.
 
 ## Repository variables and secrets
 
