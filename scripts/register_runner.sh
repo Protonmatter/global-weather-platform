@@ -9,10 +9,20 @@ set -euo pipefail
 
 : "${RUNNER_URL:?set RUNNER_URL to the repository URL, e.g. https://github.com/Protonmatter/global-weather-platform}"
 : "${RUNNER_TOKEN:?set RUNNER_TOKEN to a runner registration token (repo Settings > Actions > Runners > New self-hosted runner)}"
+: "${RUNNER_VERSION:?set RUNNER_VERSION to the version shown by the repository runner setup page}"
+: "${RUNNER_SHA256:?set RUNNER_SHA256 to the official SHA-256 shown for that runner package}"
+
+if [[ ! "$RUNNER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "RUNNER_VERSION must be a semantic version without a leading v (for example, 2.334.0)." >&2
+  exit 1
+fi
+if [[ ! "$RUNNER_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+  echo "RUNNER_SHA256 must be exactly 64 hexadecimal characters." >&2
+  exit 1
+fi
 
 RUNNER_LABELS="${RUNNER_LABELS:-weather-ci}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)-weather}"
-RUNNER_VERSION="${RUNNER_VERSION:-2.321.0}"
 RUNNER_DIR="${RUNNER_DIR:-$HOME/actions-runner}"
 
 if [[ "$(id -u)" == "0" && "${RUNNER_ALLOW_RUNASROOT:-}" != "1" ]]; then
@@ -22,20 +32,23 @@ fi
 
 command -v python3.12 >/dev/null || \
   echo "warning: python3.12 not found on PATH; ci-bootstrap and pr-fast require it" >&2
+for required_command in curl sha256sum tar; do
+  command -v "$required_command" >/dev/null || {
+    echo "$required_command is required to install the runner" >&2
+    exit 1
+  }
+done
 
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 
 tarball="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
 if [[ ! -f "$tarball" ]]; then
-  curl -fsSL -o "$tarball" \
+  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    --output "$tarball" \
     "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/${tarball}"
 fi
-if [[ -n "${RUNNER_SHA256:-}" ]]; then
-  echo "${RUNNER_SHA256}  ${tarball}" | sha256sum -c -
-else
-  echo "note: set RUNNER_SHA256 to verify the runner tarball checksum" >&2
-fi
+printf '%s  %s\n' "$RUNNER_SHA256" "$tarball" | sha256sum -c -
 tar xzf "$tarball"
 
 ./config.sh --unattended --replace \
