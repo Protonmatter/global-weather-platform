@@ -23,7 +23,10 @@ from weather_platform.storage.raw import RawSourceStore
 
 settings = Settings()
 store = JsonlObservationStore(settings.observation_path)
-raw_store = RawSourceStore(settings.raw_source_dir)
+raw_store = RawSourceStore(
+    settings.raw_source_dir,
+    max_record_bytes=settings.max_source_record_bytes,
+)
 adapter = JsonObservationAdapter()
 _ingest_lock = threading.Lock()
 
@@ -127,6 +130,7 @@ def health() -> dict[str, Any]:
         "environment": settings.environment,
         "telemetry_enabled": settings.internal_otel_endpoint is not None,
         "external_egress_enabled": settings.allow_external_egress,
+        "max_source_record_bytes": raw_store.max_record_bytes,
     }
 
 
@@ -223,9 +227,37 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
     }
 
 
+async def _read_bounded_source_record(request: Request) -> bytes:
+    """Read a request body without buffering beyond the configured retention limit."""
+    maximum = raw_store.max_record_bytes
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_length = int(content_length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid Content-Length header") from exc
+        if declared_length < 0:
+            raise HTTPException(status_code=400, detail="invalid Content-Length header")
+        if declared_length > maximum:
+            raise HTTPException(
+                status_code=413,
+                detail=f"source record exceeds the {maximum}-byte retention limit",
+            )
+
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > maximum:
+            raise HTTPException(
+                status_code=413,
+                detail=f"source record exceeds the {maximum}-byte retention limit",
+            )
+        payload.extend(chunk)
+    return bytes(payload)
+
+
 @app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
 async def create_source_record(request: Request) -> dict[str, Any]:
-    payload = await request.body()
+    payload = await _read_bounded_source_record(request)
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
     # Retention writes and fsyncs; run it off the event loop.
@@ -249,7 +281,7 @@ async def put_source_record(
     request: Request, digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")
 ) -> JSONResponse:
     """Retain source bytes without decoding, for externally decoded observations."""
-    payload = await request.body()
+    payload = await _read_bounded_source_record(request)
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
     # Hashing large payloads is CPU work; keep it off the event loop with the store.

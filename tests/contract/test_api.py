@@ -1,10 +1,11 @@
+import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
@@ -74,6 +75,60 @@ def test_health_discloses_control_state() -> None:
     assert response.status_code == 200
     assert response.json()["telemetry_enabled"] is False
     assert response.json()["external_egress_enabled"] is False
+    assert response.json()["max_source_record_bytes"] > 0
+
+
+def test_oversized_source_records_are_rejected_before_retention(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_store = RawSourceStore(tmp_path / "raw", max_record_bytes=8)
+    monkeypatch.setattr(main, "raw_store", raw_store)
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+    client = TestClient(main.app)
+    payload = b"123456789"
+    digest = sha256_digest(payload)
+
+    for method, path in (
+        ("POST", "/v1/source-records"),
+        ("PUT", f"/v1/source-records/{digest}"),
+    ):
+        response = client.request(method, path, content=payload)
+        assert response.status_code == 413
+        assert response.headers["content-type"].startswith("application/problem+json")
+        assert "8-byte retention limit" in response.json()["detail"]
+        assert list(raw_store.root.iterdir()) == []
+
+
+def test_streamed_source_record_limit_does_not_trust_content_length(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_store = RawSourceStore(tmp_path / "raw", max_record_bytes=8)
+    monkeypatch.setattr(main, "raw_store", raw_store)
+    messages = iter(
+        [
+            {"type": "http.request", "body": b"1234", "more_body": True},
+            {"type": "http.request", "body": b"56789", "more_body": False},
+        ]
+    )
+
+    async def receive() -> dict[str, object]:
+        return next(messages)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/source-records",
+            "headers": [(b"content-length", b"1")],
+        },
+        receive,
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(main._read_bounded_source_record(request))
+
+    assert excinfo.value.status_code == 413
+    assert list(raw_store.root.iterdir()) == []
 
 
 def test_rejected_observation_is_not_stored(tmp_path: Path, monkeypatch) -> None:

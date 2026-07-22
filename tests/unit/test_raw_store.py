@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -51,3 +52,52 @@ def test_store_verifies_existing_record(tmp_path: Path) -> None:
     record_path.write_bytes(b"tampered")
     with pytest.raises(ValueError, match="integrity"):
         store.store(b"original")
+
+
+@pytest.mark.parametrize("entry_type", ["symlink", "directory", "fifo"])
+def test_non_regular_digest_entry_fails_closed(tmp_path: Path, entry_type: str) -> None:
+    store = RawSourceStore(tmp_path / "raw")
+    payload = b"source-record"
+    digest = sha256_digest(payload)
+    record_path = tmp_path / "raw" / digest.removeprefix("sha256:")
+    if entry_type == "symlink":
+        target = tmp_path / "attacker-controlled"
+        target.write_bytes(payload)
+        record_path.symlink_to(target)
+    elif entry_type == "directory":
+        record_path.mkdir()
+    else:
+        os.mkfifo(record_path)
+
+    with pytest.raises(ValueError, match="regular file"):
+        store.exists(digest)
+    with pytest.raises(ValueError, match="regular file"):
+        store.retrieve(digest)
+    with pytest.raises(ValueError, match="regular file"):
+        store.store(payload)
+
+
+def test_source_record_size_limit_fails_before_retention(tmp_path: Path) -> None:
+    store = RawSourceStore(tmp_path / "raw", max_record_bytes=4)
+
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.store(b"12345")
+
+    assert list(store.root.iterdir()) == []
+    with pytest.raises(ValueError, match="positive"):
+        RawSourceStore(tmp_path / "invalid", max_record_bytes=0)
+
+
+def test_oversized_existing_record_is_rejected_before_read(tmp_path: Path) -> None:
+    store = RawSourceStore(tmp_path / "raw", max_record_bytes=4)
+    retained_payload = b"1234"
+    digest = sha256_digest(retained_payload)
+    record_path = store.root / digest.removeprefix("sha256:")
+    record_path.write_bytes(b"oversized-local-substitution")
+
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.exists(digest)
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.retrieve(digest)
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.store(retained_payload)
