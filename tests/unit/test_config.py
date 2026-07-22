@@ -40,6 +40,8 @@ def test_collector_endpoint_with_credentials_is_rejected() -> None:
         )
 
 
-def test_source_record_limit_must_be_positive() -> None:
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None, max_source_record_bytes=0)
+def test_source_record_limit_must_cover_wnm_envelope() -> None:
+    for invalid_limit in (0, 8191):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, max_source_record_bytes=invalid_limit)
+    assert Settings(_env_file=None, max_source_record_bytes=8192).max_source_record_bytes == 8192
