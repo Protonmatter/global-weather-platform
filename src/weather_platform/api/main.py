@@ -17,6 +17,11 @@ from weather_platform.config import Settings
 from weather_platform.domain.model_catalog import GuidanceOrigin, ModelGuidanceCycle
 from weather_platform.domain.models import DigestVerification, Observation
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
+from weather_platform.ingestion.eccodes_backend import (
+    EccodesUnavailableError,
+    grib_field_inventory,
+    runtime_decoder_version,
+)
 from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -399,6 +404,26 @@ def edr_position(
     assert isinstance(features, list)
     collection["features"] = features[:limit]
     return collection
+
+
+@app.post("/v1/decode/grib-inventory")
+async def decode_grib_inventory(request: Request) -> dict[str, Any]:
+    """Decode uploaded GRIB2 bytes into the field inventory that drives cycle completeness."""
+    payload = await _read_bounded_source_record(request)
+    if not payload:
+        raise HTTPException(status_code=422, detail="GRIB2 payload must not be empty")
+    try:
+        fields = await run_in_threadpool(grib_field_inventory, payload)
+        version = runtime_decoder_version()
+    except EccodesUnavailableError as exc:
+        # The decoder extra is not installed in this deployment.
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "decoder_version": version,
+        "fields": [field.model_dump(mode="json") for field in fields],
+    }
 
 
 def run() -> None:

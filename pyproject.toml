@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+eccodes = [
+  "eccodes>=2.38,<3",
+]
 dev = [
   "httpx>=0.28,<1",
   "jsonschema[format-nongpl]>=4.23,<5",
