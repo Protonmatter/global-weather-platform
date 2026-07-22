@@ -118,6 +118,35 @@
       "status": "implemented"
     },
     {
+      "path": "specs/models/SPEC-400-model-guidance-catalog.md",
+      "requirements": [
+        {
+          "id": "MODEL-CAT-0001",
+          "priority": "critical",
+          "release_gate": "governance",
+          "statement": "Imported, platform-generated, official-warning, and experimental guidance MUST be labeled distinctly and MUST NOT be conflated.",
+          "verification": [
+            "TEST-CONTRACT-0001"
+          ]
+        },
+        {
+          "id": "MODEL-CAT-0002",
+          "priority": "high",
+          "release_gate": "engineering",
+          "statement": "Missing and partial model cycles MUST be represented explicitly rather than as silently absent data.",
+          "verification": [
+            "TEST-CATALOG-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-400",
+      "standards": [
+        "WMO-306",
+        "NIST-AI-RMF"
+      ],
+      "status": "implemented"
+    },
+    {
       "path": "specs/models/SPEC-410-calibration.md",
       "requirements": [
         {
@@ -229,9 +258,19 @@
       "notes": "Sliced skill reporting awaits operational verification data.",
       "status": "planned"
     },
+    "TEST-CATALOG-0001": {
+      "evidence": [
+        "tests/unit/test_model_catalog.py",
+        "tests/contract/test_model_cycles_api.py"
+      ],
+      "status": "implemented"
+    },
     "TEST-CONTRACT-0001": {
-      "notes": "No contract test yet distinguishes official, imported, platform, and experimental output.",
-      "status": "planned"
+      "evidence": [
+        "tests/contract/test_model_cycles_api.py",
+        "tests/unit/test_model_catalog.py"
+      ],
+      "status": "implemented"
     },
     "TEST-RES-0001": {
       "notes": "Source-loss staleness behavior is not implemented.",

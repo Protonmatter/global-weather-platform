@@ -37,6 +37,7 @@ work_items:
   - id: MODEL-001
     title: External GFS and GEFS cycle catalog
     priority: P0
+    status: implemented
     requirements: [PROG-GOV-0002]
     acceptance:
       - Cycle, lead, grid, variable, level, and source revision are indexed.

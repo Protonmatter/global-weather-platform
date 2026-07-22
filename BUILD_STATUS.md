@@ -13,7 +13,8 @@
 - Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
 - Canonical observation admission requires a retained source record, serialized across processes by an advisory file lock
 - Quarantined observations retained and queryable but held out of the default serving path
-- FastAPI health, ingest, source-record, and query endpoints
+- Model guidance catalog with the four-way guidance distinction (imported, platform, official-warning, experimental) and explicit missing/partial cycle completeness
+- FastAPI health, ingest, source-record, model-cycle, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
@@ -23,10 +24,10 @@
 
 ## Verification
 
-- Specification validation: 17 requirements and 12 verification references
-- JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 106 passed
-- Branch-aware coverage: 95.37%
+- Specification validation: 19 requirements and 13 verification references
+- JSON Schema meta-validation: 5 schemas
+- Unit and contract tests: 115 passed
+- Branch-aware coverage: 94.71%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed

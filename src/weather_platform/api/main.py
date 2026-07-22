@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Any
+from typing import Annotated, Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Path, Query, Request, status
@@ -13,11 +13,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from weather_platform import __version__
 from weather_platform.config import Settings
+from weather_platform.domain.model_catalog import GuidanceOrigin, ModelGuidanceCycle
 from weather_platform.domain.models import DigestVerification, Observation
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
 from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
+from weather_platform.storage.model_catalog_store import ModelGuidanceCatalog
 from weather_platform.storage.raw import RawSourceStore
 
 settings = Settings()
@@ -26,6 +28,7 @@ raw_store = RawSourceStore(
     settings.raw_source_dir,
     max_record_bytes=settings.max_source_record_bytes,
 )
+model_catalog = ModelGuidanceCatalog(settings.model_catalog_path)
 adapter = JsonObservationAdapter()
 
 
@@ -306,6 +309,36 @@ def list_observations(
     ),
 ) -> list[Observation]:
     return store.list(phenomenon=phenomenon, limit=limit, include_quarantined=include_quarantined)
+
+
+def _cycle_summary(cycle: ModelGuidanceCycle) -> dict[str, Any]:
+    return {
+        "model_id": cycle.model_id,
+        "model_version": cycle.model_version,
+        "guidance_origin": cycle.guidance_origin.value,
+        "initialized_at": cycle.initialized_at.isoformat(),
+        "source_revision": cycle.source_revision,
+        "completeness": cycle.completeness().value,
+        "missing_field_count": len(cycle.missing_fields()),
+    }
+
+
+@app.post("/v1/model-cycles", status_code=status.HTTP_202_ACCEPTED)
+def register_model_cycle(cycle: ModelGuidanceCycle) -> dict[str, Any]:
+    # guidance_origin is required with no default, so no cycle enters the
+    # catalog without an explicit imported/platform/warning/experimental label.
+    model_catalog.register(cycle)
+    return {**_cycle_summary(cycle), "status": "catalogued"}
+
+
+@app.get("/v1/model-cycles")
+def list_model_cycles(
+    model_id: Annotated[str | None, Query(min_length=1)] = None,
+    guidance_origin: Annotated[GuidanceOrigin | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=10_000)] = 100,
+) -> list[dict[str, Any]]:
+    cycles = model_catalog.list(model_id=model_id, guidance_origin=guidance_origin, limit=limit)
+    return [_cycle_summary(cycle) for cycle in cycles]
 
 
 def run() -> None:

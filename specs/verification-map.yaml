@@ -8,8 +8,15 @@
 # of this.
 verifications:
   TEST-CONTRACT-0001:
-    status: planned
-    notes: No contract test yet distinguishes official, imported, platform, and experimental output.
+    status: implemented
+    evidence:
+      - tests/contract/test_model_cycles_api.py
+      - tests/unit/test_model_catalog.py
+  TEST-CATALOG-0001:
+    status: implemented
+    evidence:
+      - tests/unit/test_model_catalog.py
+      - tests/contract/test_model_cycles_api.py
   TEST-TRACE-0001:
     status: planned
     notes: Release-unit binding of software, model, configuration, and evidence is not implemented.
