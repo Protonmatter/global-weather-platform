@@ -8,7 +8,7 @@
 - Observation, forecast, model-cycle, and provenance JSON Schemas
 - Typed canonical observation model with schema conformance tests
 - Append-only JSONL observation store
-- Content-addressed, write-once raw source record store
+- Content-addressed, write-once raw source record store with no-follow regular-file enforcement and a configurable size bound
 - Source-record ingestion that retains raw bytes before decoding and binds provenance digests
 - Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
 - Canonical observation admission requires a retained source record
@@ -24,7 +24,7 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 93 passed
+- Unit and contract tests: 98 passed
 - Branch-aware coverage: 95.50%
 - Ruff: passed
 - Mypy strict mode: passed
