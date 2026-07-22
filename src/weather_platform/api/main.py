@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from weather_platform import __version__
+from weather_platform.api import edr
 from weather_platform.config import Settings
 from weather_platform.domain.model_catalog import GuidanceOrigin, ModelGuidanceCycle
 from weather_platform.domain.models import DigestVerification, Observation
@@ -339,6 +340,65 @@ def list_model_cycles(
 ) -> list[dict[str, Any]]:
     cycles = model_catalog.list(model_id=model_id, guidance_origin=guidance_origin, limit=limit)
     return [_cycle_summary(cycle) for cycle in cycles]
+
+
+_EDR_COLLECTION = {
+    "id": "observations",
+    "title": "Canonical observations",
+    "description": "Point observations queryable by position and datetime.",
+    "crs": ["CRS84"],
+    "output_formats": ["GeoJSON"],
+    "data_queries": {
+        "position": {
+            "link": {
+                "href": "/v1/edr/collections/observations/position",
+                "rel": "data",
+                "variables": {"query_type": "position", "output_formats": ["GeoJSON"]},
+            }
+        }
+    },
+}
+
+
+@app.get("/v1/edr/collections")
+def edr_collections() -> dict[str, Any]:
+    return {"collections": [_EDR_COLLECTION]}
+
+
+@app.get("/v1/edr/collections/observations/position")
+def edr_position(
+    coords: str,
+    datetime: str | None = None,
+    within_degrees: Annotated[float, Query(gt=0, le=45)] = 0.5,
+    limit: Annotated[int, Query(ge=1, le=10_000)] = 1000,
+    include_quarantined: bool = False,
+    parameter_name: Annotated[str | None, Query(alias="parameter-name")] = None,
+) -> dict[str, Any]:
+    try:
+        longitude, latitude = edr.parse_position_coords(coords)
+        start, end = edr.parse_datetime_interval(datetime)
+    except ValueError as exc:
+        # Malformed query is a client error, not the service-side 500 path.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    phenomena = (
+        {name.strip() for name in parameter_name.split(",") if name.strip()}
+        if parameter_name is not None
+        else None
+    )
+    candidates = store.list(limit=10_000, include_quarantined=include_quarantined)
+    collection = edr.position_feature_collection(
+        candidates,
+        longitude=longitude,
+        latitude=latitude,
+        within_degrees=within_degrees,
+        start=start,
+        end=end,
+        phenomena=phenomena,
+    )
+    features = collection["features"]
+    assert isinstance(features, list)
+    collection["features"] = features[:limit]
+    return collection
 
 
 def run() -> None:
