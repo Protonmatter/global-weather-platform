@@ -47,6 +47,6 @@
 - OGC API EDR implementation
 - Data assimilation
 - Operational calibration or model fusion
-- Forecast visualization client
+- Forecast visualization client / progressive-disclosure forecast shell (UX-001: deferred to a separate visualization trust zone pending forecast products)
 - Numerical weather-model execution
 - Production authentication and authorization
