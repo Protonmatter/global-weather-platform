@@ -30,3 +30,5 @@ requirements:
 # Observation platform
 
 The observation platform receives untrusted source records, validates their envelope, preserves immutable source bytes or a content-addressed reference, and emits canonical observations with explicit provenance and quality state.
+
+Quarantined observations are retained and remain queryable for review, but are held out of the default serving path until their quality state is cleared. Rejected observations never enter the canonical store; their retained source record remains available for audit.
