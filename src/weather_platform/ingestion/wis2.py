@@ -24,13 +24,13 @@ EARTH_SYSTEM_DISCIPLINE = (
     r"atmospheric-composition|climate|cryosphere|hydrology|ocean|space-weather|weather"
 )
 WIS2_TOPIC = re.compile(
-    rf"^(origin|cache)/a/wis2/{CENTRE_ID}/data/(core|recommended)/"
-    rf"(?:{EARTH_SYSTEM_DISCIPLINE})(?:/{TOPIC_LEVEL})+$"
+    rf"(origin|cache)/a/wis2/{CENTRE_ID}/data/(core|recommended)/"
+    rf"(?:{EARTH_SYSTEM_DISCIPLINE})(?:/{TOPIC_LEVEL})+"
 )
 
 
 def validate_wis2_topic(topic: str) -> str:
-    if not WIS2_TOPIC.match(topic):
+    if not WIS2_TOPIC.fullmatch(topic):
         raise ValueError("topic is not a valid WIS2 data notification topic")
     return topic
 
@@ -147,6 +147,8 @@ class Wis2Properties(BaseModel):
             assert self.end_datetime is not None
             _require_utc(self.start_datetime, "start_datetime")
             _require_utc(self.end_datetime, "end_datetime")
+            if self.start_datetime > self.end_datetime:
+                raise ValueError("start_datetime must not be later than end_datetime")
         return self
 
 
@@ -170,22 +172,28 @@ class Wis2Notification(BaseModel):
 
     @model_validator(mode="after")
     def validate_envelope(self) -> "Wis2Notification":
-        has_conforms_to = self.conforms_to is not None
-        has_version = self.version is not None
+        # Presence, not merely a non-null parsed value, determines exclusivity:
+        # the WNM markers are not nullable wire fields.
+        has_conforms_to = "conforms_to" in self.model_fields_set
+        has_version = "version" in self.model_fields_set
         if has_conforms_to == has_version:
             raise ValueError(
                 "notification must declare exactly one WNM conformance marker: "
                 f"conformsTo including {WNM_CORE_CONFORMANCE} or legacy version "
                 f"{LEGACY_WNM_VERSION}"
             )
-        if self.conforms_to is not None:
-            if WNM_CORE_CONFORMANCE not in self.conforms_to:
+        if has_conforms_to:
+            if self.conforms_to is None or WNM_CORE_CONFORMANCE not in self.conforms_to:
                 raise ValueError("conformsTo must advertise WNM core conformance")
         elif self.version != LEGACY_WNM_VERSION:
             raise ValueError(f"legacy WNM version must be {LEGACY_WNM_VERSION}")
         canonical = [link for link in self.links if link.rel == "canonical"]
         if len(canonical) != 1:
             raise ValueError("notification must carry exactly one canonical link")
+        if any(link.rel in {"update", "deletion"} for link in self.links):
+            raise ValueError(
+                "new-data notification must not mix canonical, update, or deletion links"
+            )
         # No acquisition path may fall back to unauthenticated transport
         # (DATA-004), and credentials never enter provenance records.
         href = canonical[0].href
@@ -261,8 +269,10 @@ class Wis2NotificationConsumer:
             message = Wis2Notification.model_validate_json(notification)
         except ValueError as exc:
             raise Wis2NotificationError(notification_digest) from exc
-        if topic.startswith("cache/") and message.properties.global_cache is None:
-            raise Wis2NotificationError(notification_digest)
+        if topic.startswith("cache/"):
+            cache_id = message.properties.global_cache
+            if cache_id is None or re.fullmatch(CENTRE_ID, cache_id) is None:
+                raise Wis2NotificationError(notification_digest)
 
         payload = self._fetch(str(message.canonical_link.href))
         # Retain the data bytes before integrity verification so a mismatch
