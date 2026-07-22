@@ -20,6 +20,8 @@ work_items:
   - id: DATA-003
     title: GRIB2 and BUFR decoder service
     priority: P0
+    status: partial
+    status_note: Decoder-service framework implemented and tested — pinned definition-table version recorded in provenance, malformed messages rejected safely with evidence retained, decodable-but-suspect messages quarantined, and golden-corpus replay detects semantic drift. The low-level ecCodes GRIB2/BUFR decode is injected and requires the native ecCodes library and definition tables, absent in this environment.
     requirements: [DATA-RAW-0001, DATA-UNIT-0001]
     acceptance:
       - ecCodes table versions are pinned and recorded.
