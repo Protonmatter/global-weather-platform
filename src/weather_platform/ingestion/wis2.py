@@ -12,6 +12,7 @@ from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_
 
 from weather_platform.domain.models import DigestVerification, Observation
 from weather_platform.ingestion.base import ObservationAdapter
+from weather_platform.ingestion.iana_tlds import IANA_TLDS
 from weather_platform.ingestion.pipeline import ingest_source_record
 from weather_platform.storage.raw import RawSourceStore
 
@@ -24,13 +25,22 @@ EARTH_SYSTEM_DISCIPLINE = (
     r"atmospheric-composition|climate|cryosphere|hydrology|ocean|space-weather|weather"
 )
 WIS2_TOPIC = re.compile(
-    rf"(origin|cache)/a/wis2/{CENTRE_ID}/data/(core|recommended)/"
+    rf"(?P<channel>origin|cache)/a/wis2/(?P<centre_id>{CENTRE_ID})/data/"
+    rf"(core|recommended)/"
     rf"(?:{EARTH_SYSTEM_DISCIPLINE})(?:/{TOPIC_LEVEL})+"
 )
 
 
+def _is_valid_centre_id(centre_id: str) -> bool:
+    if re.fullmatch(CENTRE_ID, centre_id) is None:
+        return False
+    tld, _, _ = centre_id.partition("-")
+    return tld in IANA_TLDS
+
+
 def validate_wis2_topic(topic: str) -> str:
-    if not WIS2_TOPIC.fullmatch(topic):
+    match = WIS2_TOPIC.fullmatch(topic)
+    if match is None or not _is_valid_centre_id(match.group("centre_id")):
         raise ValueError("topic is not a valid WIS2 data notification topic")
     return topic
 
@@ -258,11 +268,12 @@ class Wis2NotificationConsumer:
     def process(
         self, topic: str, notification: bytes, received_at: AwareDatetime
     ) -> Wis2IngestResult:
+        # Retain the broker message before interpreting either its topic or
+        # envelope so malformed deliveries still leave immutable evidence.
+        notification_digest = self._raw_store.store(notification)
         validate_wis2_topic(topic)
         if received_at.tzinfo is None:
             raise ValueError("received_at must be timezone-aware")
-        # The notification is itself a source record: retain before interpretation.
-        notification_digest = self._raw_store.store(notification)
         if len(notification) > MAX_WIS2_NOTIFICATION_BYTES:
             raise Wis2NotificationError(notification_digest)
         try:
@@ -271,7 +282,8 @@ class Wis2NotificationConsumer:
             raise Wis2NotificationError(notification_digest) from exc
         if topic.startswith("cache/"):
             cache_id = message.properties.global_cache
-            if cache_id is None or re.fullmatch(CENTRE_ID, cache_id) is None:
+            topic_centre_id = topic.split("/", maxsplit=4)[3]
+            if cache_id is None or not _is_valid_centre_id(cache_id) or cache_id != topic_centre_id:
                 raise Wis2NotificationError(notification_digest)
 
         payload = self._fetch(str(message.canonical_link.href))
