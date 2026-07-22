@@ -10,10 +10,11 @@
 - Append-only JSONL observation store
 - Content-addressed, write-once raw source record store
 - Source-record ingestion that retains raw bytes before decoding and binds provenance digests
+- Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
 - Canonical observation admission requires a retained source record
 - FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
-- Brier score, ensemble CRPS, reliability bins, quantile invariants
+- Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
 - Telemetry disabled by default and restricted to internal collector names
 - Deny-by-default Kubernetes network policy
@@ -23,15 +24,16 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 59 passed
-- Branch-aware coverage: 95.26%
+- Unit and contract tests: 93 passed
+- Branch-aware coverage: 95.50%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
 
 ## Explicitly not implemented yet
 
-- WIS2, GRIB2, BUFR, radar, satellite, or external NWP adapters
+- Live MQTT session and HTTP download wiring for the WIS2 consumer
+- GRIB2, BUFR, radar, satellite, or external NWP adapters
 - Object storage and indexed canonical storage
 - OGC API EDR implementation
 - Data assimilation

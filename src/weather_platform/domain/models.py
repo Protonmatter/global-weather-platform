@@ -27,6 +27,11 @@ class VerticalCoordinateType(StrEnum):
     MODEL_LEVEL = "model_level"
 
 
+class DigestVerification(StrEnum):
+    UPSTREAM = "upstream"
+    PLATFORM = "platform"
+
+
 class PointGeometry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -58,6 +63,8 @@ class Provenance(BaseModel):
     source_uri: AnyUrl | None = None
     source_published_at: AwareDatetime | None = None
     source_record_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    digest_verification: DigestVerification = DigestVerification.PLATFORM
+    received_at: AwareDatetime | None = None
     ingested_at: AwareDatetime
     decoder_version: str = Field(min_length=1)
     license_id: str | None = None

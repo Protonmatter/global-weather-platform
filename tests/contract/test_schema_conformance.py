@@ -71,6 +71,7 @@ def test_model_and_schema_reject_the_same_records(mutation: dict[str, object]) -
         {"source_id": ""},
         {"decoder_version": ""},
         {"source_uri": "not a uri"},
+        {"digest_verification": "hearsay"},
     ],
 )
 def test_model_and_schema_reject_the_same_provenance(provenance_mutation: dict[str, str]) -> None:

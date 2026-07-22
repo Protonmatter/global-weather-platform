@@ -9,7 +9,22 @@
     "product_id": {"type": "string", "minLength": 1},
     "phenomenon": {"type": "string"},
     "unit": {"type": "string"},
-    "geometry": {"type": "object"},
+    "geometry": {
+      "type": "object",
+      "required": ["type", "coordinates"],
+      "properties": {
+        "type": {"const": "Point"},
+        "coordinates": {
+          "type": "array", "minItems": 2, "maxItems": 3,
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90},
+            {"type": "number"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "issued_at": {"type": "string", "format": "date-time"},
     "valid_time": {"type": "string", "format": "date-time"},
     "quantiles": {

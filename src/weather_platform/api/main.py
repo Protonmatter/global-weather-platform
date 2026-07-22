@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from weather_platform import __version__
 from weather_platform.config import Settings
-from weather_platform.domain.models import Observation
+from weather_platform.domain.models import DigestVerification, Observation
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
 from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
 from weather_platform.provenance import sha256_digest
@@ -130,13 +130,32 @@ def health() -> dict[str, Any]:
     }
 
 
+def _observation_content(observation: Observation) -> dict[str, Any]:
+    # Receipt time and transport URL are acquisition metadata, not observed
+    # content: origin/cache redeliveries of identical source bytes can arrive at
+    # different times and URLs. The stable retained digest still participates
+    # in the comparison, and the first record keeps its acquisition metadata.
+    return observation.model_dump(
+        mode="json",
+        exclude={"provenance": {"digest_verification", "received_at", "source_uri"}},
+    )
+
+
+def _with_platform_verification(observation: Observation) -> Observation:
+    """Keep upstream trust claims reserved for the WIS2 verification path."""
+    provenance = observation.provenance.model_copy(
+        update={"digest_verification": DigestVerification.PLATFORM}
+    )
+    return observation.model_copy(update={"provenance": provenance})
+
+
 def _admit_observations(observations: list[Observation]) -> None:
-    # A byte-identical redelivery decodes to an equal observation and is skipped;
-    # a differing record under an existing id is a conflict, never a silent drop.
-    # The whole batch is conflict-checked before any append so a rejected source
-    # record never leaves a partial batch behind. The check-then-append sequence
-    # must be atomic across threadpool workers; a process lock suffices because
-    # the service deploys as a single process.
+    # A redelivery with identical content is skipped; a differing record under
+    # an existing id is a conflict, never a silent drop. The whole batch is
+    # conflict-checked before any append so a rejected source record never
+    # leaves a partial batch behind. The check-then-append sequence must be
+    # atomic across threadpool workers; a process lock suffices because the
+    # service deploys as a single process.
     with _ingest_lock:
         existing = {
             observation.observation_id: observation for observation in store.iter_observations()
@@ -147,7 +166,7 @@ def _admit_observations(observations: list[Observation]) -> None:
             if current is None:
                 existing[observation.observation_id] = observation
                 to_append.append(observation)
-            elif current != observation:
+            elif _observation_content(current) != _observation_content(observation):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
@@ -178,6 +197,7 @@ def create_observation(observation: Observation) -> dict[str, str]:
             detail="rejected observations cannot enter the canonical store",
         )
     _require_retained_source(observation.provenance.source_record_digest)
+    observation = _with_platform_verification(observation)
     _admit_observations([observation])
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
 
@@ -187,6 +207,7 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
         result = ingest_source_record(payload, adapter=adapter, raw_store=raw_store)
     except SourceDecodeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    observations = [_with_platform_verification(item) for item in result.observations]
     if any(
         observation.quality_disposition.value == "reject" for observation in result.observations
     ):
@@ -194,10 +215,10 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
-    _admit_observations(result.observations)
+    _admit_observations(observations)
     return {
         "source_record_digest": result.source_record_digest,
-        "observation_ids": [str(observation.observation_id) for observation in result.observations],
+        "observation_ids": [str(observation.observation_id) for observation in observations],
         "status": "accepted",
     }
 

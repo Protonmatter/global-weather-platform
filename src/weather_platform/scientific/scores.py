@@ -11,20 +11,27 @@ def brier_score(probability: float, observed: bool) -> float:
     return (probability - outcome) ** 2
 
 
-def crps_ensemble(members: Sequence[float], observation: float) -> float:
+def crps_ensemble(members: Sequence[float], observation: float, *, fair: bool = False) -> float:
     """Continuous ranked probability score for an empirical ensemble.
 
     CRPS = mean(|x_i-y|) - 0.5 * mean(|x_i-x_j|)
+
+    The default estimator divides the pairwise term by n^2 and is biased low in
+    spread for small ensembles; fair=True divides by n(n-1), which is unbiased
+    and required when comparing ensembles of different sizes.
     """
     if not members:
         raise ValueError("at least one ensemble member is required")
+    if fair and len(members) < 2:
+        raise ValueError("fair CRPS requires at least two ensemble members")
     if not math.isfinite(observation) or any(not math.isfinite(value) for value in members):
         raise ValueError("members and observation must be finite")
 
     count = len(members)
     observation_term = math.fsum(abs(value - observation) for value in members) / count
     pairwise = math.fsum(abs(left - right) for left in members for right in members)
-    ensemble_term = pairwise / (2.0 * count * count)
+    denominator = count * (count - 1) if fair else count * count
+    ensemble_term = pairwise / (2.0 * denominator)
     return observation_term - ensemble_term
 
 

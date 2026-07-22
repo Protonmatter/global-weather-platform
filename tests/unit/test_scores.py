@@ -16,6 +16,18 @@ def test_crps_rewards_closer_ensemble() -> None:
     assert crps_ensemble([2.0, 3.0, 4.0], 3.0) < crps_ensemble([8.0, 9.0, 10.0], 3.0)
 
 
+def test_fair_crps_is_unbiased_for_two_members() -> None:
+    assert math.isclose(crps_ensemble([0.0, 2.0], 1.0), 0.5)
+    assert math.isclose(crps_ensemble([0.0, 2.0], 1.0, fair=True), 0.0)
+
+
+def test_fair_crps_requires_two_members() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="at least two"):
+        crps_ensemble([1.0], 1.0, fair=True)
+
+
 def test_reliability_bins_preserve_empty_bins() -> None:
     result = reliability_bins([0.1, 0.2, 0.9], [False, True, True], bins=5)
     assert len(result) == 5

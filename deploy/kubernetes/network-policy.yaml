@@ -28,3 +28,30 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# Only pods labeled as the acquisition trust zone get any egress at all, and
+# this base manifest grants cluster DNS alone. Per-provider destinations for
+# MQTT over TLS (8883) and HTTPS (443) are added as allowlisted ipBlock rules
+# in deployment overlays per DATA-004; without an overlay, acquisition workers
+# cannot reach any provider.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: weather-platform-acquisition-egress
+  namespace: weather-platform
+spec:
+  podSelector:
+    matchLabels:
+      weather.trust-zone: acquisition
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

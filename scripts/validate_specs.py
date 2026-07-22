@@ -22,25 +22,32 @@ def load_frontmatter(path: Path) -> dict[str, Any]:
     match = FRONTMATTER.match(path.read_text(encoding="utf-8"))
     if not match:
         raise ValueError("missing YAML front matter")
-    loaded = yaml.safe_load(match.group(1))
+    try:
+        loaded = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as exc:
+        raise ValueError("invalid YAML front matter") from exc
     if not isinstance(loaded, dict):
         raise ValueError("front matter must be an object")
     return loaded
 
 
-def load_verification_map() -> dict[str, dict[str, Any]]:
-    loaded = yaml.safe_load(VERIFICATION_MAP_PATH.read_text(encoding="utf-8"))
+def load_verification_map() -> dict[str, Any]:
+    try:
+        loaded = yaml.safe_load(VERIFICATION_MAP_PATH.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError("verification map contains invalid YAML") from exc
     if not isinstance(loaded, dict) or not isinstance(loaded.get("verifications"), dict):
         raise ValueError("verification map must contain a 'verifications' object")
     return loaded["verifications"]
 
 
-def validate_verification_map(
-    verification_map: dict[str, dict[str, Any]], referenced: set[str]
-) -> list[str]:
+def validate_verification_map(verification_map: dict[str, Any], referenced: set[str]) -> list[str]:
     map_name = str(VERIFICATION_MAP_PATH.relative_to(ROOT))
     failures: list[str] = []
     for verification_id, entry in verification_map.items():
+        if not isinstance(entry, dict):
+            failures.append(f"{map_name}: {verification_id} must be an object")
+            continue
         entry_status = entry.get("status")
         if entry_status not in VERIFICATION_STATUSES:
             failures.append(f"{map_name}: {verification_id} has invalid status {entry_status!r}")
@@ -85,7 +92,12 @@ def main() -> int:
             location = ".".join(str(item) for item in error.path)
             failures.append(f"{path.relative_to(ROOT)}:{location}: {error.message}")
         spec_status = data.get("status")
-        for requirement in data.get("requirements", []):
+        requirements = data.get("requirements")
+        for requirement in requirements if isinstance(requirements, list) else []:
+            # Schema validation above reports malformed requirements; skip them
+            # here so one bad entry yields a finding instead of a traceback.
+            if not isinstance(requirement, dict) or not isinstance(requirement.get("id"), str):
+                continue
             requirement_id = requirement["id"]
             previous = seen_requirements.get(requirement_id)
             if previous is not None:
@@ -94,13 +106,19 @@ def main() -> int:
                     f"{previous.relative_to(ROOT)} and {path.relative_to(ROOT)}"
                 )
             seen_requirements[requirement_id] = path
-            for verification_id in requirement.get("verification", []):
+            verifications = requirement.get("verification")
+            for verification_id in verifications if isinstance(verifications, list) else []:
                 referenced_verifications.add(verification_id)
                 entry = verification_map.get(verification_id)
                 if entry is None:
                     failures.append(
                         f"{path.relative_to(ROOT)}: {requirement_id} references "
                         f"unknown verification {verification_id}"
+                    )
+                elif not isinstance(entry, dict):
+                    failures.append(
+                        f"{path.relative_to(ROOT)}: {requirement_id} references "
+                        f"malformed verification {verification_id}"
                     )
                 elif spec_status == "implemented" and entry.get("status") != "implemented":
                     failures.append(
