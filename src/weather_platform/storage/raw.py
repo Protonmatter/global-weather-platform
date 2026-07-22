@@ -38,8 +38,7 @@ class RawSourceStore:
             raise ValueError("invalid source record digest")
         return digest
 
-    @staticmethod
-    def _open_regular_file(path: Path, digest: str) -> int | None:
+    def _open_regular_file(self, path: Path, digest: str) -> int | None:
         """Open one retained record without following a substituted link."""
         flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
         try:
@@ -51,20 +50,31 @@ class RawSourceStore:
                 f"retained source record {digest} is not an accessible regular file"
             ) from exc
         try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError(f"retained source record {digest} is not a regular file")
+            if metadata.st_size > self.max_record_bytes:
+                raise ValueError(
+                    f"retained source record {digest} exceeds the "
+                    f"{self.max_record_bytes}-byte retention limit"
+                )
         except Exception:
             os.close(descriptor)
             raise
         return descriptor
 
-    @classmethod
-    def _read_regular_file(cls, path: Path, digest: str) -> bytes | None:
-        descriptor = cls._open_regular_file(path, digest)
+    def _read_regular_file(self, path: Path, digest: str) -> bytes | None:
+        descriptor = self._open_regular_file(path, digest)
         if descriptor is None:
             return None
         with os.fdopen(descriptor, "rb") as record:
-            return record.read()
+            payload = record.read(self.max_record_bytes + 1)
+        if len(payload) > self.max_record_bytes:
+            raise ValueError(
+                f"retained source record {digest} exceeds the "
+                f"{self.max_record_bytes}-byte retention limit"
+            )
+        return payload
 
     @staticmethod
     def _verify_payload(digest: str, payload: bytes) -> None:
