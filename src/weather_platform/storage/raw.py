@@ -1,11 +1,13 @@
 import os
 import re
+import stat
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from weather_platform.provenance import sha256_digest
 
 DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
+DEFAULT_MAX_SOURCE_RECORD_BYTES = 64 * 1024 * 1024
 
 
 class RawSourceStore:
@@ -15,8 +17,16 @@ class RawSourceStore:
     while preserving content addressing and write-once behavior.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_record_bytes: int = DEFAULT_MAX_SOURCE_RECORD_BYTES,
+    ) -> None:
+        if max_record_bytes <= 0:
+            raise ValueError("max_record_bytes must be positive")
         self.root = root
+        self.max_record_bytes = max_record_bytes
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path_for(self, digest: str) -> Path:
@@ -28,17 +38,54 @@ class RawSourceStore:
             raise ValueError("invalid source record digest")
         return digest
 
+    @staticmethod
+    def _open_regular_file(path: Path, digest: str) -> int | None:
+        """Open one retained record without following a substituted link."""
+        flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            descriptor = os.open(path, flags)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise ValueError(
+                f"retained source record {digest} is not an accessible regular file"
+            ) from exc
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError(f"retained source record {digest} is not a regular file")
+        except Exception:
+            os.close(descriptor)
+            raise
+        return descriptor
+
+    @classmethod
+    def _read_regular_file(cls, path: Path, digest: str) -> bytes | None:
+        descriptor = cls._open_regular_file(path, digest)
+        if descriptor is None:
+            return None
+        with os.fdopen(descriptor, "rb") as record:
+            return record.read()
+
+    @staticmethod
+    def _verify_payload(digest: str, payload: bytes) -> None:
+        if sha256_digest(payload) != digest:
+            raise ValueError(f"retained source record {digest} failed integrity verification")
+
     def store(self, payload: bytes) -> str:
         """Retain the payload and return its content-addressed digest.
 
         Storing bytes that are already retained verifies the retained copy and
         is otherwise a no-op; retained records are never rewritten.
         """
+        if len(payload) > self.max_record_bytes:
+            raise ValueError(
+                f"source record exceeds the {self.max_record_bytes}-byte retention limit"
+            )
         digest = sha256_digest(payload)
         destination = self._path_for(digest)
-        if destination.exists():
-            if sha256_digest(destination.read_bytes()) != digest:
-                raise ValueError(f"retained source record {digest} failed integrity verification")
+        existing = self._read_regular_file(destination, digest)
+        if existing is not None:
+            self._verify_payload(digest, existing)
             return digest
         with NamedTemporaryFile("wb", dir=self.root, delete=False) as tmp:
             temporary_path = Path(tmp.name)
@@ -46,8 +93,27 @@ class RawSourceStore:
             tmp.flush()
             os.fsync(tmp.fileno())
         temporary_path.chmod(0o440)
-        temporary_path.replace(destination)
-        self._fsync_root()
+        published = False
+        try:
+            try:
+                # A hard-link publish is atomic and never replaces an entry
+                # inserted between the initial read and this operation.
+                os.link(temporary_path, destination, follow_symlinks=False)
+            except FileExistsError as exc:
+                existing = self._read_regular_file(destination, digest)
+                if existing is None:
+                    raise ValueError(
+                        f"retained source record {digest} disappeared during store"
+                    ) from exc
+                self._verify_payload(digest, existing)
+            else:
+                published = True
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        if published:
+            # Persist both the destination link and removal of the temporary
+            # name as one durable directory state.
+            self._fsync_root()
         return digest
 
     def _fsync_root(self) -> None:
@@ -59,13 +125,17 @@ class RawSourceStore:
             os.close(directory_fd)
 
     def exists(self, digest: str) -> bool:
-        return self._path_for(self._validate_digest(digest)).exists()
+        validated = self._validate_digest(digest)
+        descriptor = self._open_regular_file(self._path_for(validated), validated)
+        if descriptor is None:
+            return False
+        os.close(descriptor)
+        return True
 
     def retrieve(self, digest: str) -> bytes:
-        path = self._path_for(self._validate_digest(digest))
-        if not path.exists():
+        validated = self._validate_digest(digest)
+        payload = self._read_regular_file(self._path_for(validated), validated)
+        if payload is None:
             raise ValueError(f"unknown source record {digest}")
-        payload = path.read_bytes()
-        if sha256_digest(payload) != digest:
-            raise ValueError(f"retained source record {digest} failed integrity verification")
+        self._verify_payload(validated, payload)
         return payload
