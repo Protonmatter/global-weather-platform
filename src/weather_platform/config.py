@@ -5,6 +5,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from weather_platform.storage.raw import DEFAULT_MAX_SOURCE_RECORD_BYTES
+
 INTERNAL_COLLECTOR_HOST = re.compile(
     r"^otel-collector\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.svc(\.cluster\.local)?)?$"
 )
@@ -18,6 +20,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     internal_otel_endpoint: str | None = None
     allow_external_egress: bool = False
+    max_source_record_bytes: int = Field(default=DEFAULT_MAX_SOURCE_RECORD_BYTES, gt=0)
 
     @field_validator("internal_otel_endpoint")
     @classmethod
