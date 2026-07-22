@@ -20,6 +20,7 @@ from weather_platform.storage.raw import RawSourceStore
 
 ROOT = Path(__file__).resolve().parents[2]
 TOPIC = "origin/a/wis2/de-dwd/data/core/weather/surface-based-observations/synop"
+CACHE_TOPIC = "cache/a/wis2/int-wmo-test/data/core/weather/synop"
 DATA_URL = "https://gts.example/data/temperature.json"
 RECEIVED_AT = datetime(2026, 7, 20, 18, 0, 41, tzinfo=UTC)
 
@@ -60,7 +61,7 @@ def consumer_for(tmp_path: Path, payload: bytes) -> Wis2NotificationConsumer:
 
 def test_topic_validation() -> None:
     validate_wis2_topic(TOPIC)
-    validate_wis2_topic("cache/a/wis2/int-wmo-test/data/core/synop")
+    validate_wis2_topic(CACHE_TOPIC)
     validate_wis2_topic("origin/a/wis2/de-dwd/data/recommended/weather/synop")
     for topic in (
         "origin/a/wis3/x/data/core/synop",
@@ -70,6 +71,8 @@ def test_topic_validation() -> None:
         "origin/a/wis2/de-dwd/data/private/weather",
         "origin/a/wis2/de-dwd/metadata/core/discovery",
         "origin/a/wis2/de-dwd/data/core",
+        "origin/a/wis2/de-dwd/data/core/synop",
+        "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
     ):
         with pytest.raises(ValueError, match="WIS2"):
             validate_wis2_topic(topic)
@@ -96,6 +99,30 @@ def test_notification_round_trip_binds_distinct_times(tmp_path: Path) -> None:
     times = {provenance.source_published_at, provenance.received_at, provenance.ingested_at}
     assert len(times) == 3
     assert provenance.digest_verification.value == "upstream"
+
+
+def test_cache_topic_requires_global_cache_before_fetch(tmp_path: Path) -> None:
+    payload = load_payload()
+    fetched: list[str] = []
+
+    def fetch(url: str) -> bytes:
+        fetched.append(url)
+        return payload
+
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=RawSourceStore(tmp_path / "raw"),
+        fetch=fetch,
+    )
+    message = json.loads(notification_for(payload))
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert fetched == []
+
+    message["properties"]["global-cache"] = "int-wmo-test-global-cache"
+    result = consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert result.observations
+    assert fetched == [DATA_URL]
 
 
 def test_integrity_mismatch_fails_closed_but_retains_evidence(tmp_path: Path) -> None:
@@ -153,6 +180,17 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
     wrong_marker["conformsTo"] = ["not-wnm"]
     both_markers = json.loads(notification_for(payload))
     both_markers["version"] = "v04"
+    valid_marker_with_bad_version = json.loads(notification_for(payload))
+    valid_marker_with_bad_version["version"] = "v99"
+    legacy_with_bad_conformance = json.loads(notification_for(payload))
+    legacy_with_bad_conformance["conformsTo"] = ["not-wnm"]
+    legacy_with_bad_conformance["version"] = "v04"
+    python_conformance_alias = json.loads(notification_for(payload))
+    python_conformance_alias["conforms_to"] = python_conformance_alias.pop("conformsTo")
+    python_datetime_alias = json.loads(notification_for(payload))
+    python_datetime_alias["properties"]["observed_datetime"] = python_datetime_alias[
+        "properties"
+    ].pop("datetime")
     missing_temporal = json.loads(notification_for(payload))
     del missing_temporal["properties"]["datetime"]
     empty_geometry = json.loads(notification_for(payload))
@@ -180,6 +218,10 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
         missing_geometry,
         wrong_marker,
         both_markers,
+        valid_marker_with_bad_version,
+        legacy_with_bad_conformance,
+        python_conformance_alias,
+        python_datetime_alias,
         missing_temporal,
         empty_geometry,
         wrong_geometry,
@@ -357,8 +399,13 @@ def test_invalid_topic_never_fetches(tmp_path: Path) -> None:
         raw_store=RawSourceStore(tmp_path / "raw"),
         fetch=fetch,
     )
-    with pytest.raises(ValueError, match="WIS2"):
-        consumer.process("random/topic", notification_for(b""), RECEIVED_AT)
+    for topic in (
+        "random/topic",
+        "origin/a/wis2/de-dwd/data/core/synop",
+        "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
+    ):
+        with pytest.raises(ValueError, match="WIS2"):
+            consumer.process(topic, notification_for(b""), RECEIVED_AT)
     assert fetched == []
 
 
