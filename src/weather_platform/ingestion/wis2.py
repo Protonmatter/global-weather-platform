@@ -20,7 +20,10 @@ from weather_platform.storage.raw import RawSourceStore
 # this consumer acquires data notifications only. The topic must satisfy WTH 1.3
 # primary levels and lowercase ASCII/dash conventions before any fetch.
 TOPIC_LEVEL = r"[a-z0-9]+(?:-[a-z0-9]+)*"
-CENTRE_ID = rf"{TOPIC_LEVEL}(?:-{TOPIC_LEVEL})+"
+# The broad centre-id shape permits punycode TLDs (for example ``xn--p1ai``);
+# _is_valid_centre_id then finds an authoritative IANA TLD prefix and validates
+# the remaining centre-name using the stricter WTH topic-level convention.
+CENTRE_ID = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 EARTH_SYSTEM_DISCIPLINE = (
     r"atmospheric-composition|climate|cryosphere|hydrology|ocean|space-weather|weather"
 )
@@ -34,8 +37,13 @@ WIS2_TOPIC = re.compile(
 def _is_valid_centre_id(centre_id: str) -> bool:
     if re.fullmatch(CENTRE_ID, centre_id) is None:
         return False
-    tld, _, _ = centre_id.partition("-")
-    return tld in IANA_TLDS
+    components = centre_id.split("-")
+    for boundary in range(1, len(components)):
+        tld = "-".join(components[:boundary])
+        centre_name = "-".join(components[boundary:])
+        if tld in IANA_TLDS and re.fullmatch(TOPIC_LEVEL, centre_name) is not None:
+            return True
+    return False
 
 
 def validate_wis2_topic(topic: str) -> str:
