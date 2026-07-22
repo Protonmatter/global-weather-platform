@@ -28,8 +28,8 @@
 
 - Specification validation: 19 requirements and 13 verification references
 - JSON Schema meta-validation: 5 schemas
-- Unit and contract tests: 142 passed
-- Branch-aware coverage: 94.77%
+- Unit and contract tests: 147 passed
+- Branch-aware coverage: 94.33%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
@@ -37,7 +37,7 @@
 ## Partially implemented
 
 - Acquisition transport integrity: issuer-allowlist verification, fail-closed on unpinned issuers, and upstream-checksum verification are implemented and tested; live MQTT/HTTPS acquisition wiring awaits a deployment target
-- GRIB2/BUFR decoder service: pinned definition-table provenance, malformed-message rejection, decodable-but-suspect quarantine, and golden-corpus drift detection are implemented and tested; the low-level ecCodes decode is injected and requires the native ecCodes library
+- GRIB2/BUFR decoder service: real ecCodes GRIB2 decoding into the model-cycle field inventory is implemented and tested (runtime ecCodes version recorded, malformed rejection, golden-corpus drift detection); real ecCodes BUFR decoding into canonical observations is the remaining part. ecCodes is an optional (`eccodes`) extra
 
 ## Explicitly not implemented yet
 
