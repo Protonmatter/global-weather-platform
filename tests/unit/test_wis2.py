@@ -73,6 +73,7 @@ def test_topic_validation() -> None:
         "origin/a/wis2/de-dwd/data/core",
         "origin/a/wis2/de-dwd/data/core/synop",
         "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
+        f"{TOPIC}\n",
     ):
         with pytest.raises(ValueError, match="WIS2"):
             validate_wis2_topic(topic)
@@ -115,6 +116,11 @@ def test_cache_topic_requires_global_cache_before_fetch(tmp_path: Path) -> None:
         fetch=fetch,
     )
     message = json.loads(notification_for(payload))
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert fetched == []
+
+    message["properties"]["global-cache"] = "not-a-valid-centre-"
     with pytest.raises(Wis2NotificationError):
         consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
     assert fetched == []
@@ -185,6 +191,11 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
     legacy_with_bad_conformance = json.loads(notification_for(payload))
     legacy_with_bad_conformance["conformsTo"] = ["not-wnm"]
     legacy_with_bad_conformance["version"] = "v04"
+    null_legacy_with_conformance = json.loads(notification_for(payload))
+    null_legacy_with_conformance["version"] = None
+    null_conformance_with_legacy = json.loads(notification_for(payload))
+    null_conformance_with_legacy["conformsTo"] = None
+    null_conformance_with_legacy["version"] = "v04"
     python_conformance_alias = json.loads(notification_for(payload))
     python_conformance_alias["conforms_to"] = python_conformance_alias.pop("conformsTo")
     python_datetime_alias = json.loads(notification_for(payload))
@@ -220,6 +231,8 @@ def test_notification_without_wnm_envelope_is_rejected(tmp_path: Path) -> None:
         both_markers,
         valid_marker_with_bad_version,
         legacy_with_bad_conformance,
+        null_legacy_with_conformance,
+        null_conformance_with_legacy,
         python_conformance_alias,
         python_datetime_alias,
         missing_temporal,
@@ -289,6 +302,25 @@ def test_interval_temporal_description_is_accepted(tmp_path: Path) -> None:
     message["properties"]["end_datetime"] = "2026-07-20T18:00:00Z"
     result = consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
     assert result.observations
+
+
+def test_reversed_interval_is_rejected_before_fetch(tmp_path: Path) -> None:
+    payload = load_payload()
+    fetched: list[str] = []
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=RawSourceStore(tmp_path / "raw"),
+        fetch=lambda url: fetched.append(url) or payload,
+    )
+    message = json.loads(notification_for(payload))
+    del message["properties"]["datetime"]
+    message["properties"]["start_datetime"] = "2026-07-20T19:00:00Z"
+    message["properties"]["end_datetime"] = "2026-07-20T18:00:00Z"
+
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+
+    assert fetched == []
 
 
 def test_null_temporal_description_is_accepted(tmp_path: Path) -> None:
@@ -380,6 +412,14 @@ def test_notification_without_exactly_one_canonical_link_is_rejected(tmp_path: P
             {"href": DATA_URL, "rel": "canonical"},
             {"href": "https://mirror.example/other", "rel": "canonical"},
         ],
+        [
+            {"href": DATA_URL, "rel": "canonical"},
+            {"href": "https://mirror.example/update", "rel": "update"},
+        ],
+        [
+            {"href": DATA_URL, "rel": "canonical"},
+            {"href": "https://mirror.example/deletion", "rel": "deletion"},
+        ],
     ):
         message = json.loads(notification_for(payload))
         message["links"] = links
@@ -423,3 +463,59 @@ def test_redelivery_does_not_duplicate_canonical_observations(tmp_path: Path, mo
     stored = main.store.list()
     assert len(stored) == 1
     assert stored[0].provenance.received_at == RECEIVED_AT
+
+
+def test_cache_redelivery_with_a_different_url_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    payload = load_payload()
+    cache_url = "https://cache.example/data/temperature.json"
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(),
+        raw_store=RawSourceStore(tmp_path / "raw"),
+        fetch={DATA_URL: payload, cache_url: payload}.__getitem__,
+    )
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+
+    origin = consumer.process(TOPIC, notification_for(payload), RECEIVED_AT)
+    cache_message = json.loads(notification_for(payload))
+    cache_message["properties"]["global-cache"] = "int-wmo-test-global-cache"
+    cache_message["links"][0]["href"] = cache_url
+    cache = consumer.process(
+        CACHE_TOPIC,
+        json.dumps(cache_message).encode("utf-8"),
+        datetime(2026, 7, 20, 18, 5, 0, tzinfo=UTC),
+    )
+
+    main._admit_observations(origin.observations)
+    main._admit_observations(cache.observations)
+
+    stored = main.store.list()
+    assert len(stored) == 1
+    assert str(stored[0].provenance.source_uri) == DATA_URL
+
+
+def test_direct_observation_cannot_claim_upstream_verification(tmp_path: Path, monkeypatch) -> None:
+    payload = load_payload()
+    raw = RawSourceStore(tmp_path / "raw")
+    consumer = Wis2NotificationConsumer(
+        adapter=JsonObservationAdapter(), raw_store=raw, fetch={DATA_URL: payload}.__getitem__
+    )
+    observation = consumer.process(TOPIC, notification_for(payload), RECEIVED_AT).observations[0]
+    assert observation.provenance.digest_verification.value == "upstream"
+    monkeypatch.setattr(main, "raw_store", raw)
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+
+    main.create_observation(observation)
+
+    assert main.store.list()[0].provenance.digest_verification.value == "platform"
+
+
+def test_source_record_cannot_claim_upstream_verification(tmp_path: Path, monkeypatch) -> None:
+    message = json.loads(load_payload())
+    message["provenance"]["digest_verification"] = "upstream"
+    payload = json.dumps(message).encode("utf-8")
+    monkeypatch.setattr(main, "raw_store", RawSourceStore(tmp_path / "raw"))
+    monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
+
+    main._ingest_and_store(payload)
+
+    assert main.store.list()[0].provenance.digest_verification.value == "platform"
