@@ -69,3 +69,10 @@ Defaults:
 - Visibility: `private`
 
 Override these with `GITHUB_OWNER`, `GITHUB_REPOSITORY_NAME`, or `GITHUB_VISIBILITY`.
+
+## License
+
+Proprietary and confidential — see [LICENSE](LICENSE). This is a placeholder
+proprietary notice matching the repository's private posture; replace it with
+the copyright holder's chosen terms (including an open-source license) if and
+when the platform is licensed for wider distribution.

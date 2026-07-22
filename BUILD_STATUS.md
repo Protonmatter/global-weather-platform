@@ -9,9 +9,10 @@
 - Typed canonical observation model with schema conformance tests
 - Append-only JSONL observation store
 - Content-addressed, write-once raw source record store with no-follow regular-file enforcement and a configurable size bound
-- Source-record ingestion that retains raw bytes before decoding and binds provenance digests
+- Source-record ingestion that retains raw bytes before decoding, binds provenance digests, and derives deterministic content-addressed observation ids
 - Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
-- Canonical observation admission requires a retained source record
+- Canonical observation admission requires a retained source record, serialized across processes by an advisory file lock
+- Quarantined observations retained and queryable but held out of the default serving path
 - FastAPI health, ingest, source-record, and query endpoints
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
@@ -24,8 +25,8 @@
 
 - Specification validation: 17 requirements and 12 verification references
 - JSON Schema meta-validation: 4 schemas
-- Unit and contract tests: 101 passed
-- Branch-aware coverage: 95.19%
+- Unit and contract tests: 106 passed
+- Branch-aware coverage: 95.37%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed
