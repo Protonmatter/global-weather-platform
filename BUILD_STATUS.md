@@ -22,7 +22,7 @@
 - Verification dataset ledger: leakage-safe availability-at-issue partitioning and versioned, reproducible persistence and climatology baselines
 - Telemetry disabled by default and restricted to internal collector names
 - Deny-by-default Kubernetes network policy
-- Internal-runner CI workflows using an internal Python package mirror
+- Self-hosted-runner CI workflows: a bootstrap gate on public PyPI plus authoritative gates on an internal Python package mirror, with a runner registration helper and runbook
 
 ## Verification
 
