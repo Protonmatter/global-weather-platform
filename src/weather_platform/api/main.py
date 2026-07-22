@@ -136,7 +136,8 @@ def _observation_content(observation: Observation) -> dict[str, Any]:
     # different times and URLs. The stable retained digest still participates
     # in the comparison, and the first record keeps its acquisition metadata.
     return observation.model_dump(
-        mode="json", exclude={"provenance": {"received_at", "source_uri"}}
+        mode="json",
+        exclude={"provenance": {"digest_verification", "received_at", "source_uri"}},
     )
 
 
