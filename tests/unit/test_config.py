@@ -38,3 +38,8 @@ def test_collector_endpoint_with_credentials_is_rejected() -> None:
             _env_file=None,
             internal_otel_endpoint="http://user:secret@otel-collector.monitoring:4318",
         )
+
+
+def test_source_record_limit_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, max_source_record_bytes=0)
