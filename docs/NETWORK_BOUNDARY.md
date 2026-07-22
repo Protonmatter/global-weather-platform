@@ -30,3 +30,7 @@ Third-party telemetry is disabled. OpenTelemetry is opt-in and valid only when `
 ## Credentials
 
 Credentials must be short-lived where supported, redacted from logs, and never embedded in source data, model artifacts, traces, metrics labels, or provenance records.
+
+## Acquisition transport verification
+
+Acquisition workers verify each source's observed TLS issuer chain against a per-source pin and reject any unpinned issuer as an interception indicator, refuse unauthenticated schemes, and verify the upstream-published checksum before retention (`weather_platform.ingestion.transport_trust`). The verification core is implemented and tested; the live MQTT/HTTPS wiring that supplies the observed chain is deployment-specific and not yet wired.
