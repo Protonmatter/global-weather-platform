@@ -31,20 +31,38 @@ fi
 RUNNER_LABELS="${RUNNER_LABELS:-weather-ci}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)-weather}"
 RUNNER_DIR="${RUNNER_DIR:-$HOME/actions-runner}"
+RUNNER_AS_SERVICE="${RUNNER_AS_SERVICE:-false}"
+
+if [[ "$RUNNER_AS_SERVICE" != "true" && "$RUNNER_AS_SERVICE" != "false" ]]; then
+  echo "RUNNER_AS_SERVICE must be true or false." >&2
+  exit 1
+fi
 
 if [[ "$(id -u)" == "0" && "${RUNNER_ALLOW_RUNASROOT:-}" != "1" ]]; then
   echo "Refusing to run the runner as root. Use a dedicated user, or set RUNNER_ALLOW_RUNASROOT=1." >&2
   exit 1
 fi
 
-command -v python3.12 >/dev/null || \
-  echo "warning: python3.12 not found on PATH; ci-bootstrap and pr-fast require it" >&2
+command -v python3.12 >/dev/null || {
+  echo "python3.12 is required by ci-bootstrap and pr-fast" >&2
+  exit 1
+}
+python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version' || {
+  echo "python3.12 must resolve to Python 3.12" >&2
+  exit 1
+}
 for required_command in curl sha256sum tar; do
   command -v "$required_command" >/dev/null || {
     echo "$required_command is required to install the runner" >&2
     exit 1
   }
 done
+if [[ "$RUNNER_AS_SERVICE" == "true" ]]; then
+  command -v sudo >/dev/null || {
+    echo "sudo is required when RUNNER_AS_SERVICE=true" >&2
+    exit 1
+  }
+fi
 
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
@@ -64,7 +82,7 @@ tar xzf "$tarball"
   --name "$RUNNER_NAME" \
   --labels "$RUNNER_LABELS"
 
-if [[ "${RUNNER_AS_SERVICE:-false}" == "true" ]]; then
+if [[ "$RUNNER_AS_SERVICE" == "true" ]]; then
   sudo ./svc.sh install
   sudo ./svc.sh start
   echo "Runner ${RUNNER_NAME} installed as a service with labels: ${RUNNER_LABELS}"
