@@ -63,6 +63,7 @@ def test_topic_validation() -> None:
     validate_wis2_topic(TOPIC)
     validate_wis2_topic(CACHE_TOPIC)
     validate_wis2_topic("origin/a/wis2/de-dwd/data/recommended/weather/synop")
+    validate_wis2_topic("origin/a/wis2/xn--p1ai-centre/data/core/weather/synop")
     for topic in (
         "origin/a/wis3/x/data/core/synop",
         "random/topic",
@@ -75,6 +76,7 @@ def test_topic_validation() -> None:
         "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
         "origin/a/wis2/123-cache/data/core/weather/synop",
         "origin/a/wis2/zz-cache/data/core/weather/synop",
+        "origin/a/wis2/com--cache/data/core/weather/synop",
         f"{TOPIC}\n",
     ):
         with pytest.raises(ValueError, match="WIS2"):
