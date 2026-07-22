@@ -68,12 +68,23 @@ mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 
 tarball="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
-if [[ ! -f "$tarball" ]]; then
-  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
-    --output "$tarball" \
+verify_package() {
+  local package_path="$1"
+  printf '%s  %s\n' "$RUNNER_SHA256" "$package_path" | sha256sum -c -
+}
+
+if [[ -f "$tarball" ]]; then
+  verify_package "$tarball"
+else
+  download_path="${tarball}.download.$$"
+  trap 'rm -f "$download_path"' EXIT
+  curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --fail --silent --show-error --location --output "$download_path" \
     "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/${tarball}"
+  verify_package "$download_path"
+  mv "$download_path" "$tarball"
+  trap - EXIT
 fi
-printf '%s  %s\n' "$RUNNER_SHA256" "$tarball" | sha256sum -c -
 tar xzf "$tarball"
 
 ./config.sh --unattended --replace \
