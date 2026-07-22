@@ -73,6 +73,8 @@ def test_topic_validation() -> None:
         "origin/a/wis2/de-dwd/data/core",
         "origin/a/wis2/de-dwd/data/core/synop",
         "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
+        "origin/a/wis2/123-cache/data/core/weather/synop",
+        "origin/a/wis2/zz-cache/data/core/weather/synop",
         f"{TOPIC}\n",
     ):
         with pytest.raises(ValueError, match="WIS2"):
@@ -126,6 +128,11 @@ def test_cache_topic_requires_global_cache_before_fetch(tmp_path: Path) -> None:
     assert fetched == []
 
     message["properties"]["global-cache"] = "int-wmo-test-global-cache"
+    with pytest.raises(Wis2NotificationError):
+        consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
+    assert fetched == []
+
+    message["properties"]["global-cache"] = "int-wmo-test"
     result = consumer.process(CACHE_TOPIC, json.dumps(message).encode("utf-8"), RECEIVED_AT)
     assert result.observations
     assert fetched == [DATA_URL]
@@ -434,9 +441,10 @@ def test_invalid_topic_never_fetches(tmp_path: Path) -> None:
         fetched.append(url)
         return b""
 
+    raw_store = RawSourceStore(tmp_path / "raw")
     consumer = Wis2NotificationConsumer(
         adapter=JsonObservationAdapter(),
-        raw_store=RawSourceStore(tmp_path / "raw"),
+        raw_store=raw_store,
         fetch=fetch,
     )
     for topic in (
@@ -444,8 +452,10 @@ def test_invalid_topic_never_fetches(tmp_path: Path) -> None:
         "origin/a/wis2/de-dwd/data/core/synop",
         "origin/a/wis2/de-dwd/data/core/weather/surface.observations",
     ):
+        notification = notification_for(b"")
         with pytest.raises(ValueError, match="WIS2"):
-            consumer.process(topic, notification_for(b""), RECEIVED_AT)
+            consumer.process(topic, notification, RECEIVED_AT)
+        assert raw_store.retrieve(sha256_digest(notification)) == notification
     assert fetched == []
 
 
@@ -476,14 +486,16 @@ def test_cache_redelivery_with_a_different_url_is_idempotent(tmp_path: Path, mon
     monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
 
     origin = consumer.process(TOPIC, notification_for(payload), RECEIVED_AT)
-    cache_message = json.loads(notification_for(payload))
-    cache_message["properties"]["global-cache"] = "int-wmo-test-global-cache"
+    cache_message = json.loads(notification_for(payload, integrity=False))
+    cache_message["properties"]["global-cache"] = "int-wmo-test"
     cache_message["links"][0]["href"] = cache_url
     cache = consumer.process(
         CACHE_TOPIC,
         json.dumps(cache_message).encode("utf-8"),
         datetime(2026, 7, 20, 18, 5, 0, tzinfo=UTC),
     )
+    assert origin.observations[0].provenance.digest_verification.value == "upstream"
+    assert cache.observations[0].provenance.digest_verification.value == "platform"
 
     main._admit_observations(origin.observations)
     main._admit_observations(cache.observations)
