@@ -171,18 +171,22 @@ def test_source_record_ingestion_round_trip(tmp_path: Path, monkeypatch) -> None
     assert response.json()[0]["provenance"]["source_record_digest"] == digest
 
 
-def test_conflicting_source_record_is_rejected(tmp_path: Path, monkeypatch) -> None:
+def test_corrected_source_record_becomes_a_new_record(tmp_path: Path, monkeypatch) -> None:
     client = isolated_client(tmp_path, monkeypatch)
     payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
-    assert client.post("/v1/source-records", content=payload).status_code == 202
+    first = client.post("/v1/source-records", content=payload)
+    assert first.status_code == 202
 
-    conflicting = json.loads(payload)
-    conflicting["value"] = 999.0
-    response = client.post("/v1/source-records", content=json.dumps(conflicting).encode("utf-8"))
-    assert response.status_code == 409
-    assert response.headers["content-type"].startswith("application/problem+json")
-    assert "conflicts" in response.json()["detail"]
-    assert len(main.store.list()) == 1
+    # Different bytes decode to a different source digest, so the derived id
+    # differs and the corrected report is retained as a distinct record rather
+    # than conflicting with the original.
+    corrected = json.loads(payload)
+    corrected["value"] = 999.0
+    second = client.post("/v1/source-records", content=json.dumps(corrected).encode("utf-8"))
+    assert second.status_code == 202
+    ids = {first.json()["observation_ids"][0], second.json()["observation_ids"][0]}
+    assert len(ids) == 2
+    assert len(main.store.list()) == 2
 
 
 def test_conflicting_direct_observation_is_rejected(tmp_path: Path, monkeypatch) -> None:
@@ -214,6 +218,25 @@ def test_conflicting_batch_leaves_store_unmutated(tmp_path: Path, monkeypatch) -
         main._admit_observations([fresh, conflicting])
     assert excinfo.value.status_code == 409
     assert main.store.list() == [base]
+
+
+def test_quarantined_observation_is_retained_but_not_served_by_default(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    payload = (ROOT / "testdata/observations/temperature.json").read_bytes()
+    quarantined = json.loads(payload)
+    quarantined["quality_disposition"] = "quarantine"
+    quarantined["quality_flags"] = ["range_suspect"]
+
+    response = client.post("/v1/source-records", content=json.dumps(quarantined).encode("utf-8"))
+    assert response.status_code == 202
+
+    # Retained and stored, but excluded from the default serving path.
+    assert client.get("/v1/observations").json() == []
+    included = client.get("/v1/observations", params={"include_quarantined": True})
+    assert len(included.json()) == 1
+    assert included.json()[0]["quality_disposition"] == "quarantine"
 
 
 def test_http_exception_headers_are_preserved() -> None:
