@@ -10,6 +10,7 @@ from weather_platform.storage.raw import DEFAULT_MAX_SOURCE_RECORD_BYTES
 INTERNAL_COLLECTOR_HOST = re.compile(
     r"^otel-collector\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.svc(\.cluster\.local)?)?$"
 )
+MIN_MAX_SOURCE_RECORD_BYTES = 8192
 
 
 class Settings(BaseSettings):
@@ -20,7 +21,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     internal_otel_endpoint: str | None = None
     allow_external_egress: bool = False
-    max_source_record_bytes: int = Field(default=DEFAULT_MAX_SOURCE_RECORD_BYTES, gt=0)
+    # The deployment-wide source bound must still accommodate the complete
+    # WIS2 notification envelope retained before interpretation.
+    max_source_record_bytes: int = Field(
+        default=DEFAULT_MAX_SOURCE_RECORD_BYTES,
+        ge=MIN_MAX_SOURCE_RECORD_BYTES,
+    )
 
     @field_validator("internal_otel_endpoint")
     @classmethod
