@@ -37,6 +37,7 @@ work_items:
   - id: MODEL-001
     title: External GFS and GEFS cycle catalog
     priority: P0
+    status: implemented
     requirements: [PROG-GOV-0002]
     acceptance:
       - Cycle, lead, grid, variable, level, and source revision are indexed.
@@ -53,6 +54,7 @@ work_items:
   - id: SCI-001
     title: Verification dataset ledger
     priority: P0
+    status: implemented
     requirements: [VAL-LEAK-0003, VAL-BASE-0001]
     acceptance:
       - Every verification case records availability-at-issue time.

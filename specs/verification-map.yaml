@@ -8,8 +8,15 @@
 # of this.
 verifications:
   TEST-CONTRACT-0001:
-    status: planned
-    notes: No contract test yet distinguishes official, imported, platform, and experimental output.
+    status: implemented
+    evidence:
+      - tests/contract/test_model_cycles_api.py
+      - tests/unit/test_model_catalog.py
+  TEST-CATALOG-0001:
+    status: implemented
+    evidence:
+      - tests/unit/test_model_catalog.py
+      - tests/contract/test_model_cycles_api.py
   TEST-TRACE-0001:
     status: planned
     notes: Release-unit binding of software, model, configuration, and evidence is not implemented.
@@ -44,10 +51,11 @@ verifications:
       - tests/unit/test_domain.py
   TEST-SCI-0001:
     status: planned
-    notes: Baseline comparison and temporally separated evaluation await calibration work.
+    notes: Persistence and climatology baselines and the ledger are implemented (tests/unit/test_verification.py), but candidate-versus-baseline comparison and calibration temporal separation await candidate forecasts.
   TEST-SCI-0002:
-    status: planned
-    notes: Leakage prevention checks await the verification dataset ledger (SCI-001).
+    status: implemented
+    evidence:
+      - tests/unit/test_verification.py
   REPORT-SCORECARD-0001:
     status: planned
     notes: Sliced skill reporting awaits operational verification data.

@@ -29,3 +29,5 @@ requirements:
 # Validation plan
 
 Validation combines software tests, numerical benchmarks, proper scoring rules, uncertainty intervals, golden events, prospective shadow operation, and independent approval.
+
+The verification dataset ledger records each case's availability-at-issue accounting: forecasts are computed only from observations operationally available at the simulated issue time, and later corrections are separated and excluded rather than silently used. Persistence and climatology baselines are deterministic and version-labeled so verification cases are reproducible.

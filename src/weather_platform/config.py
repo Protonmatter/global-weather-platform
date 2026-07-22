@@ -47,5 +47,9 @@ class Settings(BaseSettings):
         return self.data_dir / self.data_filename
 
     @property
+    def model_catalog_path(self) -> Path:
+        return self.data_dir / "model-cycles.jsonl"
+
+    @property
     def raw_source_dir(self) -> Path:
         return self.data_dir / "raw"
