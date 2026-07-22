@@ -54,6 +54,7 @@ work_items:
   - id: SCI-001
     title: Verification dataset ledger
     priority: P0
+    status: implemented
     requirements: [VAL-LEAK-0003, VAL-BASE-0001]
     acceptance:
       - Every verification case records availability-at-issue time.

@@ -18,6 +18,7 @@
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
 - Dependence-aware baseline fusion weighting and effective ensemble size
+- Verification dataset ledger: leakage-safe availability-at-issue partitioning and versioned, reproducible persistence and climatology baselines
 - Telemetry disabled by default and restricted to internal collector names
 - Deny-by-default Kubernetes network policy
 - Internal-runner CI workflows using an internal Python package mirror
@@ -26,8 +27,8 @@
 
 - Specification validation: 19 requirements and 13 verification references
 - JSON Schema meta-validation: 5 schemas
-- Unit and contract tests: 115 passed
-- Branch-aware coverage: 94.71%
+- Unit and contract tests: 120 passed
+- Branch-aware coverage: 94.10%
 - Ruff: passed
 - Mypy strict mode: passed
 - API smoke test: passed

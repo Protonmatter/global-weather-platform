@@ -284,12 +284,14 @@
       "status": "implemented"
     },
     "TEST-SCI-0001": {
-      "notes": "Baseline comparison and temporally separated evaluation await calibration work.",
+      "notes": "Persistence and climatology baselines and the ledger are implemented (tests/unit/test_verification.py), but candidate-versus-baseline comparison and calibration temporal separation await candidate forecasts.",
       "status": "planned"
     },
     "TEST-SCI-0002": {
-      "notes": "Leakage prevention checks await the verification dataset ledger (SCI-001).",
-      "status": "planned"
+      "evidence": [
+        "tests/unit/test_verification.py"
+      ],
+      "status": "implemented"
     },
     "TEST-SEC-0001": {
       "notes": "The deny-by-default policy manifest exists but no automated check verifies it.",
