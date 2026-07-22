@@ -83,3 +83,18 @@ def test_source_record_size_limit_fails_before_retention(tmp_path: Path) -> None
     assert list(store.root.iterdir()) == []
     with pytest.raises(ValueError, match="positive"):
         RawSourceStore(tmp_path / "invalid", max_record_bytes=0)
+
+
+def test_oversized_existing_record_is_rejected_before_read(tmp_path: Path) -> None:
+    store = RawSourceStore(tmp_path / "raw", max_record_bytes=4)
+    retained_payload = b"1234"
+    digest = sha256_digest(retained_payload)
+    record_path = store.root / digest.removeprefix("sha256:")
+    record_path.write_bytes(b"oversized-local-substitution")
+
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.exists(digest)
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.retrieve(digest)
+    with pytest.raises(ValueError, match="4-byte retention limit"):
+        store.store(retained_payload)
