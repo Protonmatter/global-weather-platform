@@ -53,9 +53,10 @@ workflows.
    ```
 
    `scripts/register_runner.sh` downloads the selected runner release over
-   HTTPS, verifies the tarball before extraction, configures it unattended, and
-   installs it as a service in the recommended example. It refuses to run as
-   root by default and never persists the registration token.
+   HTTPS into a temporary file, verifies it before atomically publishing or
+   extracting it, configures it unattended, and installs it as a service in the
+   recommended example. It refuses to run as root by default and never persists
+   the registration token.
 
    | Variable | Default | Purpose |
    | --- | --- | --- |
