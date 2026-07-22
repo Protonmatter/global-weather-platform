@@ -15,11 +15,17 @@ from weather_platform.ingestion.base import ObservationAdapter
 from weather_platform.ingestion.pipeline import ingest_source_record
 from weather_platform.storage.raw import RawSourceStore
 
-# {origin|cache}/a/wis2/{centre-id}/data/{core|recommended}/{domain...}: this
-# consumer acquires data notifications only, so metadata channels and unknown
-# notification types or data policies are rejected before any fetch.
+# {origin|cache}/a/wis2/{centre-id}/data/{core|recommended}/{discipline}/{tail...}:
+# this consumer acquires data notifications only. The topic must satisfy WTH 1.3
+# primary levels and lowercase ASCII/dash conventions before any fetch.
+TOPIC_LEVEL = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+CENTRE_ID = rf"{TOPIC_LEVEL}(?:-{TOPIC_LEVEL})+"
+EARTH_SYSTEM_DISCIPLINE = (
+    r"atmospheric-composition|climate|cryosphere|hydrology|ocean|space-weather|weather"
+)
 WIS2_TOPIC = re.compile(
-    r"^(origin|cache)/a/wis2/[a-z0-9-]+/data/(core|recommended)(/[a-z0-9._-]+)+$"
+    rf"^(origin|cache)/a/wis2/{CENTRE_ID}/data/(core|recommended)/"
+    rf"(?:{EARTH_SYSTEM_DISCIPLINE})(?:/{TOPIC_LEVEL})+$"
 )
 
 
@@ -111,13 +117,14 @@ Wis2Geometry = Wis2PointGeometry | Wis2PolygonGeometry
 
 
 class Wis2Properties(BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore")
 
     data_id: str = Field(min_length=1)
     pubtime: AwareDatetime
     observed_datetime: AwareDatetime | None = Field(default=None, alias="datetime")
     start_datetime: AwareDatetime | None = None
     end_datetime: AwareDatetime | None = None
+    global_cache: str | None = Field(default=None, min_length=1, alias="global-cache")
     integrity: Wis2Integrity | None = None
 
     @model_validator(mode="after")
@@ -151,7 +158,7 @@ class Wis2Notification(BaseModel):
     and a conformance marker) still gates every fetch.
     """
 
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore")
 
     id: UUID
     type: str = Field(pattern="^Feature$")
@@ -163,14 +170,19 @@ class Wis2Notification(BaseModel):
 
     @model_validator(mode="after")
     def validate_envelope(self) -> "Wis2Notification":
-        declares_core = self.conforms_to is not None and WNM_CORE_CONFORMANCE in self.conforms_to
-        declares_legacy = self.version == LEGACY_WNM_VERSION
-        if declares_core == declares_legacy:
+        has_conforms_to = self.conforms_to is not None
+        has_version = self.version is not None
+        if has_conforms_to == has_version:
             raise ValueError(
                 "notification must declare exactly one WNM conformance marker: "
                 f"conformsTo including {WNM_CORE_CONFORMANCE} or legacy version "
                 f"{LEGACY_WNM_VERSION}"
             )
+        if self.conforms_to is not None:
+            if WNM_CORE_CONFORMANCE not in self.conforms_to:
+                raise ValueError("conformsTo must advertise WNM core conformance")
+        elif self.version != LEGACY_WNM_VERSION:
+            raise ValueError(f"legacy WNM version must be {LEGACY_WNM_VERSION}")
         canonical = [link for link in self.links if link.rel == "canonical"]
         if len(canonical) != 1:
             raise ValueError("notification must carry exactly one canonical link")
@@ -249,6 +261,8 @@ class Wis2NotificationConsumer:
             message = Wis2Notification.model_validate_json(notification)
         except ValueError as exc:
             raise Wis2NotificationError(notification_digest) from exc
+        if topic.startswith("cache/") and message.properties.global_cache is None:
+            raise Wis2NotificationError(notification_digest)
 
         payload = self._fetch(str(message.canonical_link.href))
         # Retain the data bytes before integrity verification so a mismatch
