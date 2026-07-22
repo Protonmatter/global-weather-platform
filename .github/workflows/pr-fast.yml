@@ -22,7 +22,7 @@ jobs:
       - name: Install
         env:
           PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
-        run: .venv/bin/python -m pip install -e '.[dev]'
+        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
       - name: Lint
         run: PATH="$PWD/.venv/bin:$PATH" make lint
       - name: Type check
