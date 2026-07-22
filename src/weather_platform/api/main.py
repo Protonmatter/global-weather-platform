@@ -240,7 +240,7 @@ async def _read_bounded_source_record(request: Request) -> bytes:
             raise HTTPException(status_code=400, detail="invalid Content-Length header")
         if declared_length > maximum:
             raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                status_code=413,
                 detail=f"source record exceeds the {maximum}-byte retention limit",
             )
 
@@ -248,7 +248,7 @@ async def _read_bounded_source_record(request: Request) -> bytes:
     async for chunk in request.stream():
         if len(payload) + len(chunk) > maximum:
             raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                status_code=413,
                 detail=f"source record exceeds the {maximum}-byte retention limit",
             )
         payload.extend(chunk)
