@@ -4,6 +4,7 @@ work_items:
   - id: DATA-001
     title: Content-addressed raw object store
     priority: P0
+    status: implemented
     requirements: [DATA-RAW-0001]
     acceptance:
       - Original source bytes are immutable and addressable by SHA-256.
@@ -12,6 +13,7 @@ work_items:
   - id: DATA-002
     title: WIS2 notification consumer
     priority: P0
+    status: implemented
     requirements: [DATA-TIME-0002, DATA-QC-0003]
     acceptance:
       - MQTT notifications are consumed only by the acquisition trust zone.
@@ -68,6 +70,17 @@ work_items:
   - id: UX-001
     title: Progressive-disclosure forecast shell
     priority: P1
+    status: deferred
+    status_note: >-
+      Deferred by architecture, not effort. The forecast shell belongs in the
+      public-distribution/visualization trust zone (SPEC-100), which RFC-0001
+      keeps separate from this control plane; its forecast, uncertainty, and
+      diagnostic layers presuppose forecast products that do not exist yet; and
+      the WCAG 2.2 AA acceptance criterion requires a dedicated frontend stack
+      and manual audit. It should be built as a separate visualization service
+      once forecast products exist. The governance state it must surface
+      (official/imported/platform/experimental via GuidanceOrigin) and staleness
+      (cycle completeness) are already modeled and served by MODEL-001.
     requirements: []
     acceptance:
       - Situation, forecast, uncertainty, and diagnostic layers preserve context.
