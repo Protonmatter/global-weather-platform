@@ -15,6 +15,9 @@
 - Quarantined observations retained and queryable but held out of the default serving path
 - Model guidance catalog with the four-way guidance distinction (imported, platform, official-warning, experimental) and explicit missing/partial cycle completeness
 - FastAPI health, ingest, source-record, model-cycle, and query endpoints
+- Separately deployable Sites operator console with authenticated mutation
+  routes, D1/R2 edge persistence, audit history, provenance-aware observations,
+  model-cycle status, and OGC EDR-style position queries
 - OGC API EDR position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
@@ -47,6 +50,8 @@
 - OGC API EDR implementation
 - Data assimilation
 - Operational calibration or model fusion
-- Forecast visualization client / progressive-disclosure forecast shell (UX-001: deferred to a separate visualization trust zone pending forecast products)
+- Probabilistic forecast visualization client / progressive-disclosure forecast
+  shell (UX-001 remains deferred pending forecast products; the implemented
+  operator console covers control-plane workflows only)
 - Numerical weather-model execution
 - Production authentication and authorization

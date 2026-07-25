@@ -1,0 +1,40 @@
+name: operator-console
+
+on:
+  pull_request:
+    paths:
+      - 'apps/operator-console/**'
+      - 'Makefile'
+      - '.github/workflows/operator-console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/operator-console/**'
+      - 'Makefile'
+      - '.github/workflows/operator-console.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/operator-console
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require Node.js 22.13 or newer
+        shell: bash
+        run: |
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 13)) process.exit(1)'
+      - name: Install locked dependencies
+        run: npm run install:ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
+      - name: Build and test
+        run: npm test

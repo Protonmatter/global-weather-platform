@@ -42,7 +42,7 @@ def collect() -> dict[str, Any]:
         specs.append(
             {
                 "spec_id": data["spec_id"],
-                "path": str(path.relative_to(ROOT)),
+                "path": path.relative_to(ROOT).as_posix(),
                 "status": data["status"],
                 "standards": data["standards"],
                 "requirements": data["requirements"],

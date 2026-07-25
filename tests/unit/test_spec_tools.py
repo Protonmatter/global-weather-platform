@@ -53,3 +53,32 @@ def test_traceability_rejects_malformed_frontmatter_without_omission(
 
     with pytest.raises(SystemExit, match="malformed spec front matter"):
         module.collect()
+
+
+def test_traceability_uses_portable_posix_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_script("generate_traceability")
+    spec_root = tmp_path / "specs"
+    nested = spec_root / "nested"
+    nested.mkdir(parents=True)
+    (nested / "SPEC-test.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "spec_id: SPEC-TEST",
+                "status: accepted",
+                "standards: []",
+                "requirements: []",
+                "---",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (spec_root / "verification-map.yaml").write_text("verifications: {}\n", encoding="utf-8")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    result = module.collect()
+
+    assert result["specifications"][0]["path"] == "specs/nested/SPEC-test.md"
