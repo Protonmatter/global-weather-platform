@@ -39,61 +39,13 @@ type Health = {
   telemetry_enabled: boolean;
   external_egress_enabled: boolean;
   persistence: {
-    canonical_observations: number;
-    retained_source_records: number;
-    audit_events: number;
+    canonical_observations: number | null;
+    retained_source_records: number | null;
+    audit_events: number | null;
   };
 };
 
 type Toast = { tone: "good" | "bad"; message: string } | null;
-
-const sampleObservations = [
-  {
-    phenomenon: "air_temperature",
-    value: 301.8,
-    unit: "K",
-    uncertainty: 0.4,
-    longitude: -74.006,
-    latitude: 40.7128,
-    sourceId: "validation-set/nyc",
-  },
-  {
-    phenomenon: "wind_speed",
-    value: 12.6,
-    unit: "m/s",
-    uncertainty: 1.1,
-    longitude: -95.3698,
-    latitude: 29.7604,
-    sourceId: "validation-set/houston",
-  },
-  {
-    phenomenon: "air_temperature",
-    value: 287.4,
-    unit: "K",
-    uncertainty: 0.3,
-    longitude: 139.6917,
-    latitude: 35.6895,
-    sourceId: "validation-set/tokyo",
-  },
-  {
-    phenomenon: "mean_sea_level_pressure",
-    value: 100420,
-    unit: "Pa",
-    uncertainty: 22,
-    longitude: -0.1276,
-    latitude: 51.5072,
-    sourceId: "validation-set/london",
-  },
-  {
-    phenomenon: "precipitation_rate",
-    value: 4.8,
-    unit: "mm/h",
-    uncertainty: 0.9,
-    longitude: 151.2093,
-    latitude: -33.8688,
-    sourceId: "validation-set/sydney",
-  },
-];
 
 function formatTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -139,7 +91,6 @@ export default function WeatherConsole({
   const [cycles, setCycles] = useState<ModelCycle[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(true);
-  const [seeding, setSeeding] = useState(false);
   const [showQuarantine, setShowQuarantine] = useState(false);
   const [phenomenon, setPhenomenon] = useState("all");
   const [selected, setSelected] = useState<Observation | null>(null);
@@ -206,54 +157,6 @@ export default function WeatherConsole({
     (cycle) => cycle.completeness !== "complete",
   ).length;
 
-  async function seedValidationSet() {
-    setSeeding(true);
-    try {
-      for (const [index, sample] of sampleObservations.entries()) {
-        const observedAt = new Date(Date.now() - index * 21 * 60_000).toISOString();
-        const sourcePayload = {
-          schema_version: "1.0.0",
-          ...sample,
-          observed_at: observedAt,
-          validation_case: `site-seed-${index + 1}`,
-        };
-        const source = await fetch("/api/v1/source-records", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(sourcePayload),
-        }).then((response) =>
-          responseJson<{ source_record_digest: string }>(response),
-        );
-        await fetch("/api/v1/observations", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            ...sample,
-            observedAt,
-            qualityDisposition: index === 4 ? "accept_with_flags" : "accept",
-            qualityFlags: index === 4 ? ["radar_blend_transition"] : [],
-            sourceDigest: source.source_record_digest,
-            decoderVersion: "site-json-adapter/1.0.0",
-            recordIndex: 0,
-          }),
-        }).then((response) => responseJson(response));
-      }
-      setToast({
-        tone: "good",
-        message: "Validation set retained, decoded, and admitted.",
-      });
-      await loadData();
-    } catch (error) {
-      setToast({
-        tone: "bad",
-        message:
-          error instanceof Error ? error.message : "Validation ingest failed.",
-      });
-    } finally {
-      setSeeding(false);
-    }
-  }
-
   return (
     <main className="console-shell">
       <header className="topbar">
@@ -318,17 +221,17 @@ export default function WeatherConsole({
       <section className="metric-grid" aria-label="Platform metrics">
         <article className="metric-card">
           <span>Canonical observations</span>
-          <strong>{health?.persistence.canonical_observations ?? "—"}</strong>
+          <strong>{health?.persistence?.canonical_observations ?? "—"}</strong>
           <small>{acceptedCount} visible after quality policy</small>
         </article>
         <article className="metric-card">
           <span>Retained source records</span>
-          <strong>{health?.persistence.retained_source_records ?? "—"}</strong>
+          <strong>{health?.persistence?.retained_source_records ?? "—"}</strong>
           <small>Content-addressed object storage</small>
         </article>
         <article className="metric-card">
           <span>Audit events</span>
-          <strong>{health?.persistence.audit_events ?? "—"}</strong>
+          <strong>{health?.persistence?.audit_events ?? "—"}</strong>
           <small>Append-only operator accountability</small>
         </article>
         <article className="metric-card">
@@ -444,7 +347,9 @@ export default function WeatherConsole({
           <div className="cycle-list">
             {cycles.map((cycle) => {
               const completeness = Math.round(
-                (cycle.availableFieldCount / cycle.expectedFieldCount) * 100,
+                cycle.expectedFieldCount > 0
+                  ? (cycle.availableFieldCount / cycle.expectedFieldCount) * 100
+                  : 0,
               );
               return (
                 <article className="cycle" key={cycle.id}>
@@ -497,14 +402,6 @@ export default function WeatherConsole({
               <span />
               Include quarantine
             </label>
-            <button
-              className="primary-button"
-              disabled={seeding}
-              onClick={() => void seedValidationSet()}
-              type="button"
-            >
-              {seeding ? "Ingesting…" : "Ingest validation set"}
-            </button>
           </div>
         </div>
 
@@ -553,18 +450,9 @@ export default function WeatherConsole({
               <span className="empty-orbit" aria-hidden="true" />
               <h3>The canonical store is ready.</h3>
               <p>
-                Ingest the validation set to exercise immutable source
-                retention, provenance binding, quality admission, and global
-                query.
+                Use the authenticated ingestion API to retain real source
+                records and admit schema-valid observations with provenance.
               </p>
-              <button
-                className="primary-button"
-                disabled={seeding}
-                onClick={() => void seedValidationSet()}
-                type="button"
-              >
-                {seeding ? "Ingesting…" : "Ingest validation set"}
-              </button>
             </div>
           ) : null}
         </div>

@@ -33,4 +33,8 @@ def test_parse_datetime_interval() -> None:
 def test_angular_distance_wraps_the_antimeridian() -> None:
     # 179.9 and -179.9 are 0.2 deg apart, not 359.8.
     assert angular_distance_degrees(179.9, 0.0, -179.9, 0.0) == pytest.approx(0.2)
-    assert angular_distance_degrees(0.0, 0.0, 3.0, 4.0) == pytest.approx(5.0)
+    assert angular_distance_degrees(0.0, 0.0, 3.0, 4.0) == pytest.approx(5.0, abs=0.01)
+
+
+def test_angular_distance_converges_at_the_poles() -> None:
+    assert angular_distance_degrees(0.0, 89.0, 90.0, 89.0) == pytest.approx(1.414, abs=0.01)

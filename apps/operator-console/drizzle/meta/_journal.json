@@ -15,6 +15,20 @@
       "when": 1784942949370,
       "tag": "0001_lumpy_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785110000000,
+      "tag": "0002_mark_legacy_observation_digests",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785111000000,
+      "tag": "0003_quarantine_legacy_fixtures",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
+from weather_platform.config import Settings
 from weather_platform.domain.models import Observation
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -76,6 +77,45 @@ def test_health_discloses_control_state() -> None:
     assert response.json()["telemetry_enabled"] is False
     assert response.json()["external_egress_enabled"] is False
     assert response.json()["max_source_record_bytes"] > 0
+    assert response.json()["mutation_authentication_enabled"] is False
+
+
+def test_production_mutations_require_service_and_operator_identity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = isolated_client(tmp_path, monkeypatch)
+    token = "s" * 32
+    monkeypatch.setattr(
+        main,
+        "settings",
+        Settings(
+            _env_file=None,
+            environment="production",
+            data_dir=tmp_path,
+            control_plane_token=token,
+        ),
+    )
+    payload = b'{"source":"authenticated-retention"}'
+    digest = sha256_digest(payload)
+
+    assert client.put(f"/v1/source-records/{digest}", content=payload).status_code == 401
+    assert (
+        client.put(
+            f"/v1/source-records/{digest}",
+            content=payload,
+            headers={"x-weather-actor": "spoofed@example.invalid"},
+        ).status_code
+        == 401
+    )
+    response = client.put(
+        f"/v1/source-records/{digest}",
+        content=payload,
+        headers={
+            "authorization": f"Bearer {token}",
+            "x-weather-actor": "operator@example.invalid",
+        },
+    )
+    assert response.status_code == 201
 
 
 def test_oversized_source_records_are_rejected_before_retention(
@@ -198,6 +238,12 @@ def test_conflicting_direct_observation_is_rejected(tmp_path: Path, monkeypatch)
     record = json.loads(payload)
     record["provenance"]["source_record_digest"] = digest
     assert client.post("/v1/observations", json=record).status_code == 202
+    assert client.post("/v1/observations", json=record).status_code == 202
+
+    # Availability timestamps can differ when an authenticated BFF retries the
+    # same canonical content; the first admitted timestamps remain authoritative.
+    record["ingestion_time"] = "2026-07-20T18:02:03Z"
+    record["provenance"]["ingested_at"] = "2026-07-20T18:02:03Z"
     assert client.post("/v1/observations", json=record).status_code == 202
 
     record["value"] = 999.0

@@ -10,18 +10,19 @@ permissions:
 
 jobs:
   quality:
-    runs-on: [self-hosted, linux, weather-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Require internal package mirror
-        run: test -n "${{ vars.PYPI_MIRROR_URL }}"
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
       - name: Create isolated environment
-        run: python3.12 -m venv .venv
+        run: python -m venv .venv
       - name: Install
-        env:
-          PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
         run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
       - name: Lint
         run: PATH="$PWD/.venv/bin:$PATH" make lint

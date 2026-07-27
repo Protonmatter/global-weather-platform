@@ -22,6 +22,12 @@ operator trust zone.
 - The Site is a backend-for-frontend for authentication, response shaping, and
   operator workflows.
 - Production deployments configure `CONTROL_PLANE_URL` server-side.
+- Production deployments inject a shared service credential through
+  `CONTROL_PLANE_TOKEN` in Sites and `WEATHER_CONTROL_PLANE_TOKEN` in FastAPI.
+  FastAPI refuses production startup without it.
+- The BFF allowlists forwarded headers, discards caller authorization and
+  identity claims, and forwards only the verified Sites actor with the service
+  credential on mutations.
 - The Site-local D1/R2 path is a bounded prototype and development fallback.
 - Sites identity headers are trusted only at the verified dispatch boundary.
 - The existing opaque Sites project binding remains versioned with the source.
@@ -32,8 +38,9 @@ operator trust zone.
 
 The repository gains a Node.js build and an independently deployable artifact.
 Contract drift between Python schemas and TypeScript types remains a release
-risk until generated contracts and a drift gate replace the current manually
-versioned TypeScript contract.
+risk. Until generated contracts replace the manually versioned TypeScript
+contract, cross-runtime golden tests and BFF response-shaping tests are release
+gates.
 
 ## Rollback
 

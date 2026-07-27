@@ -4,12 +4,9 @@ import { auditEvents } from "../../../../db/schema";
 import {
   actorFromRequest,
   problem,
-  proxyToControlPlane,
 } from "../../../../lib/weather";
 
 export async function GET(request: Request) {
-  const upstream = await proxyToControlPlane(request, "/v1/audit");
-  if (upstream) return upstream;
   if (!actorFromRequest(request)) {
     return problem(
       request,

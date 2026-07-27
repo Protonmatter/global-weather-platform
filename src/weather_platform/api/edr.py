@@ -10,6 +10,7 @@ degrees away.
 
 import math
 import re
+from collections.abc import Iterable
 from datetime import datetime
 
 from pydantic import AwareDatetime, TypeAdapter
@@ -58,16 +59,14 @@ def parse_datetime_interval(
 
 
 def angular_distance_degrees(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-    """Approximate angular separation in degrees with wrapped longitude.
-
-    The longitude delta is wrapped into [0, 180], so points straddling the
-    antimeridian are correctly treated as close.
-    """
-    dlon = abs(lon1 - lon2) % 360.0
-    if dlon > 180.0:
-        dlon = 360.0 - dlon
-    dlat = abs(lat1 - lat2)
-    return math.sqrt(dlon**2 + dlat**2)
+    """Return great-circle angular separation in degrees on a spherical Earth."""
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_lambda = math.radians(lon2 - lon1)
+    cosine = math.sin(phi1) * math.sin(phi2) + math.cos(phi1) * math.cos(phi2) * math.cos(
+        delta_lambda
+    )
+    return math.degrees(math.acos(min(1.0, max(-1.0, cosine))))
 
 
 def observation_in_window(
@@ -116,7 +115,7 @@ def observation_to_feature(observation: Observation) -> dict[str, object]:
 
 
 def position_feature_collection(
-    observations: list[Observation],
+    observations: Iterable[Observation],
     *,
     longitude: float,
     latitude: float,
@@ -124,6 +123,7 @@ def position_feature_collection(
     start: datetime | None,
     end: datetime | None,
     phenomena: set[str] | None,
+    limit: int | None = None,
 ) -> dict[str, object]:
     features: list[dict[str, object]] = []
     for observation in observations:
@@ -135,4 +135,6 @@ def position_feature_collection(
         if angular_distance_degrees(longitude, latitude, obs_lon, obs_lat) > within_degrees:
             continue
         features.append(observation_to_feature(observation))
+        if limit is not None and len(features) >= limit:
+            break
     return {"type": "FeatureCollection", "features": features}

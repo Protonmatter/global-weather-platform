@@ -73,6 +73,13 @@ repository update the same versioned Site. See
 [`apps/operator-console/README.md`](apps/operator-console/README.md) and
 [`adrs/ADR-0002-operator-console-trust-zone.md`](adrs/ADR-0002-operator-console-trust-zone.md).
 
+Authoritative deployments inject the same randomly generated, minimum
+32-character service secret as `CONTROL_PLANE_TOKEN` in Sites and
+`WEATHER_CONTROL_PLANE_TOKEN` in FastAPI. The secret is never committed. Sites
+removes caller-supplied authorization and identity headers, requires the
+verified workspace identity for mutations, and forwards only its service token
+and the verified operator identity.
+
 ## Publish the initial private GitHub repository
 
 The repository is initialized on `main`. From an authenticated workstation with the GitHub CLI:

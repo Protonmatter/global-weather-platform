@@ -18,6 +18,9 @@
 - Separately deployable Sites operator console with authenticated mutation
   routes, D1/R2 edge persistence, audit history, provenance-aware observations,
   model-cycle status, and OGC EDR-style position queries
+- BFF-to-FastAPI mutation authentication with fail-closed production
+  configuration, verified operator propagation, and caller-header stripping
+- Cross-runtime UUIDv5 observation identity and response-shaping contract tests
 - OGC API EDR position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
 - RFC 9457 problem responses for validation, rejection, and internal errors
 - Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
@@ -25,7 +28,8 @@
 - Verification dataset ledger: leakage-safe availability-at-issue partitioning and versioned, reproducible persistence and climatology baselines
 - Telemetry disabled by default and restricted to internal collector names
 - Deny-by-default Kubernetes network policy
-- Self-hosted-runner CI workflows: a bootstrap gate on public PyPI plus authoritative gates on an internal Python package mirror, with a runner registration helper and runbook
+- GitHub-hosted pull-request quality gates plus isolated self-hosted release and
+  deep-security workflows, with a runner registration helper and runbook
 
 ## Verification
 
@@ -47,11 +51,11 @@
 - Live MQTT session and HTTP download wiring for the WIS2 consumer
 - GRIB2, BUFR, radar, satellite, or external NWP adapters
 - Object storage and indexed canonical storage
-- OGC API EDR implementation
 - Data assimilation
 - Operational calibration or model fusion
 - Probabilistic forecast visualization client / progressive-disclosure forecast
   shell (UX-001 remains deferred pending forecast products; the implemented
   operator console covers control-plane workflows only)
 - Numerical weather-model execution
-- Production authentication and authorization
+- Fine-grained production role authorization beyond the implemented BFF
+  service credential and authenticated operator identity

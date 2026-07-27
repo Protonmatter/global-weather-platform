@@ -7,6 +7,7 @@ interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   CONTROL_PLANE_URL?: string;
+  CONTROL_PLANE_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

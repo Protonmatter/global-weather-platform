@@ -1,8 +1,10 @@
-import { and, desc, eq, gte, lte, ne } from "drizzle-orm";
+import { and, desc, gte, inArray, lte, ne, or } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { observations } from "../../../db/schema";
 import {
   angularDistanceDegrees,
+  isPhenomenon,
+  longitudeRanges,
   parseDatetimeInterval,
   problem,
 } from "../../../lib/weather";
@@ -11,8 +13,9 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const longitude = Number(url.searchParams.get("longitude"));
   const latitude = Number(url.searchParams.get("latitude"));
-  const withinDegrees = Number(url.searchParams.get("within_degrees") ?? "2");
-  const phenomenon = url.searchParams.get("parameter_name");
+  const withinDegrees = Number(url.searchParams.get("within_degrees") ?? "0.5");
+  const rawPhenomena = url.searchParams.get("parameter_name");
+  const limit = Number(url.searchParams.get("limit") ?? "1000");
   const includeQuarantined =
     url.searchParams.get("include_quarantined") === "true";
   let interval: ReturnType<typeof parseDatetimeInterval>;
@@ -54,9 +57,30 @@ export async function GET(request: Request) {
       "within_degrees must be greater than 0 and at most 45.",
     );
   }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+    return problem(
+      request,
+      400,
+      "Invalid limit",
+      "limit must be an integer between 1 and 10000.",
+    );
+  }
+
+  const phenomena = rawPhenomena
+    ?.split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (phenomena && (phenomena.length === 0 || phenomena.some((name) => !isPhenomenon(name)))) {
+    return problem(
+      request,
+      400,
+      "Invalid parameter name",
+      "parameter_name must contain comma-separated canonical phenomenon names.",
+    );
+  }
 
   const conditions = [];
-  if (phenomenon) conditions.push(eq(observations.phenomenon, phenomenon));
+  if (phenomena) conditions.push(inArray(observations.phenomenon, phenomena));
   if (!includeQuarantined) {
     conditions.push(ne(observations.qualityDisposition, "quarantine"));
   }
@@ -66,26 +90,47 @@ export async function GET(request: Request) {
   if (interval.end) {
     conditions.push(lte(observations.observedAt, interval.end));
   }
+  conditions.push(
+    gte(observations.latitude, Math.max(-90, latitude - withinDegrees)),
+    lte(observations.latitude, Math.min(90, latitude + withinDegrees)),
+  );
+  const ranges = longitudeRanges(longitude, latitude, withinDegrees);
+  if (!(ranges.length === 1 && ranges[0][0] === -180 && ranges[0][1] === 180)) {
+    conditions.push(
+      or(
+        ...ranges.map(([minimum, maximum]) =>
+          and(
+            gte(observations.longitude, minimum),
+            lte(observations.longitude, maximum),
+          ),
+        ),
+      )!,
+    );
+  }
 
-  const rows = await getDb()
-    .select()
-    .from(observations)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(observations.observedAt))
-    .limit(10_000);
-
-  const features = rows
-    .filter(
-      (row) =>
+  const features = [];
+  const batchSize = 1000;
+  let offset = 0;
+  while (features.length < limit) {
+    const rows = await getDb()
+      .select()
+      .from(observations)
+      .where(and(...conditions))
+      .orderBy(desc(observations.observedAt))
+      .limit(batchSize)
+      .offset(offset);
+    for (const row of rows) {
+      if (
         angularDistanceDegrees(
           longitude,
           latitude,
           row.longitude,
           row.latitude,
-        ) <= withinDegrees,
-    )
-    .slice(0, 1_000)
-    .map((row) => ({
+        ) > withinDegrees
+      ) {
+        continue;
+      }
+      features.push({
       type: "Feature",
       id: row.id,
       geometry: {
@@ -108,7 +153,12 @@ export async function GET(request: Request) {
           ingested_at: row.ingestedAt,
         },
       },
-    }));
+      });
+      if (features.length >= limit) break;
+    }
+    offset += rows.length;
+    if (rows.length < batchSize) break;
+  }
 
   return Response.json({
     type: "FeatureCollection",
@@ -116,7 +166,7 @@ export async function GET(request: Request) {
     query: {
       coords: `POINT(${longitude} ${latitude})`,
       within_degrees: withinDegrees,
-      parameter_name: phenomenon,
+      parameter_name: rawPhenomena,
       datetime: url.searchParams.get("datetime"),
     },
     features,

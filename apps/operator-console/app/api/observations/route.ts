@@ -1,38 +1,17 @@
 import { and, desc, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { auditEvents, observations, sourceRecords } from "../../../db/schema";
-import { auditEventValues } from "../../../lib/audit";
+import { observations, sourceRecords } from "../../../db/schema";
+import { recordAuditEvent } from "../../../lib/audit";
 import {
   actorFromRequest,
   deterministicObservationId,
-  isFiniteNumber,
-  isPhenomenon,
+  normalizeObservationInput,
+  ObservationValidationError,
   problem,
   sha256Text,
-  type QualityDisposition,
+  type NormalizedObservationInput,
+  type ObservationInput,
 } from "../../../lib/weather";
-
-type ObservationInput = {
-  phenomenon?: unknown;
-  value?: unknown;
-  unit?: unknown;
-  uncertainty?: unknown;
-  longitude?: unknown;
-  latitude?: unknown;
-  observedAt?: unknown;
-  qualityDisposition?: unknown;
-  qualityFlags?: unknown;
-  sourceId?: unknown;
-  sourceDigest?: unknown;
-  decoderVersion?: unknown;
-  recordIndex?: unknown;
-};
-
-const dispositions = new Set<QualityDisposition>([
-  "accept",
-  "accept_with_flags",
-  "quarantine",
-]);
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -45,8 +24,7 @@ export async function GET(request: Request) {
     conditions.push(ne(observations.qualityDisposition, "quarantine"));
   }
 
-  const db = getDb();
-  const rows = await db
+  const rows = await getDb()
     .select()
     .from(observations)
     .where(conditions.length ? and(...conditions) : undefined)
@@ -72,109 +50,26 @@ export async function POST(request: Request) {
       "urn:weather:problem:authentication-required",
     );
   }
-  let payload: ObservationInput;
-  try {
-    payload = (await request.json()) as ObservationInput;
-  } catch {
-    return problem(request, 400, "Invalid request", "A JSON body is required.");
-  }
 
-  if (!isPhenomenon(payload.phenomenon)) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "phenomenon must use lowercase snake_case.",
-    );
-  }
-  if (payload.value !== null && !isFiniteNumber(payload.value)) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "value must be a finite number or null.",
-    );
-  }
-  if (
-    typeof payload.unit !== "string" ||
-    payload.unit.trim().length === 0 ||
-    payload.unit.length > 24
-  ) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "unit is required.",
-    );
-  }
-  if (
-    !isFiniteNumber(payload.longitude) ||
-    payload.longitude < -180 ||
-    payload.longitude > 180 ||
-    !isFiniteNumber(payload.latitude) ||
-    payload.latitude < -90 ||
-    payload.latitude > 90
-  ) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "Coordinates must be valid CRS84 longitude and latitude values.",
-    );
-  }
-  const observedAt = new Date(String(payload.observedAt));
-  if (Number.isNaN(observedAt.getTime())) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "observedAt must be an ISO 8601 timestamp.",
-    );
-  }
-  if (
-    typeof payload.qualityDisposition !== "string" ||
-    !dispositions.has(payload.qualityDisposition as QualityDisposition)
-  ) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "qualityDisposition must be accept, accept_with_flags, or quarantine.",
-    );
-  }
-  const qualityFlags = Array.isArray(payload.qualityFlags)
-    ? payload.qualityFlags.filter(
-        (flag): flag is string => typeof flag === "string",
-      )
-    : [];
-  if (
-    payload.qualityDisposition === "accept" &&
-    qualityFlags.length > 0
-  ) {
-    return problem(
-      request,
-      422,
-      "Invalid observation",
-      "Accepted observations cannot carry unresolved quality flags.",
-    );
-  }
-  if (
-    typeof payload.sourceDigest !== "string" ||
-    !/^sha256:[a-f0-9]{64}$/.test(payload.sourceDigest)
-  ) {
-    return problem(
-      request,
-      422,
-      "Invalid provenance",
-      "A retained SHA-256 source record digest is required.",
-    );
+  let input: NormalizedObservationInput;
+  try {
+    const body = (await request.json()) as unknown;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new ObservationValidationError("A JSON object is required.");
+    }
+    input = normalizeObservationInput(body as ObservationInput);
+  } catch (error) {
+    if (error instanceof ObservationValidationError) {
+      return problem(request, 422, "Invalid observation", error.message);
+    }
+    return problem(request, 400, "Invalid request", "A JSON body is required.");
   }
 
   const db = getDb();
   const retained = await db
     .select({ digest: sourceRecords.digest })
     .from(sourceRecords)
-    .where(eq(sourceRecords.digest, payload.sourceDigest))
+    .where(eq(sourceRecords.digest, input.sourceDigest))
     .limit(1);
   if (retained.length === 0) {
     return problem(
@@ -186,108 +81,74 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const decoderVersion =
-    typeof payload.decoderVersion === "string" && payload.decoderVersion.trim()
-      ? payload.decoderVersion.trim()
-      : "site-json-adapter/1.0.0";
-  const recordIndex =
-    typeof payload.recordIndex === "number" &&
-    Number.isInteger(payload.recordIndex) &&
-    payload.recordIndex >= 0
-      ? payload.recordIndex
-      : 0;
   const id = await deterministicObservationId(
-    payload.sourceDigest,
-    decoderVersion,
-    recordIndex,
+    input.sourceDigest,
+    input.decoderVersion,
+    input.recordIndex,
   );
-  const sourceId =
-    typeof payload.sourceId === "string" && payload.sourceId.trim()
-      ? payload.sourceId.trim()
-      : "operator-input";
-  const normalizedContent = {
-    phenomenon: payload.phenomenon,
-    value: payload.value,
-    unit: payload.unit.trim(),
-    uncertainty: isFiniteNumber(payload.uncertainty)
-      ? payload.uncertainty
-      : null,
-    longitude: payload.longitude,
-    latitude: payload.latitude,
-    observedAt: observedAt.toISOString(),
-    qualityDisposition: payload.qualityDisposition,
-    qualityFlags: [...new Set(qualityFlags)].sort(),
-    sourceId,
-    sourceDigest: payload.sourceDigest,
-    decoderVersion,
-    recordIndex,
-  };
-  const contentDigest = await sha256Text(JSON.stringify(normalizedContent));
-  const existing = await db
-    .select({ contentDigest: observations.contentDigest })
-    .from(observations)
-    .where(eq(observations.id, id))
-    .limit(1);
-  if (
-    existing.length > 0 &&
-    existing[0].contentDigest &&
-    existing[0].contentDigest !== contentDigest
-  ) {
-    return problem(
-      request,
-      409,
-      "Observation conflict",
-      `Observation ${id} conflicts with an existing canonical record.`,
-      "urn:weather:problem:observation-conflict",
-    );
+  const contentDigest = await sha256Text(JSON.stringify(input));
+  const inserted = await db
+    .insert(observations)
+    .values({
+      id,
+      phenomenon: input.phenomenon,
+      value: input.value,
+      unit: input.unit,
+      uncertainty: input.uncertainty,
+      longitude: input.longitude,
+      latitude: input.latitude,
+      observedAt: input.observedAt,
+      ingestedAt: now,
+      qualityDisposition: input.qualityDisposition,
+      qualityFlags: JSON.stringify(input.qualityFlags),
+      sourceId: input.sourceId,
+      sourceDigest: input.sourceDigest,
+      decoderVersion: input.decoderVersion,
+      recordIndex: input.recordIndex,
+      contentDigest,
+      createdBy: actor,
+    })
+    .onConflictDoNothing({ target: observations.id })
+    .returning({ id: observations.id });
+
+  if (inserted.length === 0) {
+    const existing = await db
+      .select({ contentDigest: observations.contentDigest })
+      .from(observations)
+      .where(eq(observations.id, id))
+      .limit(1);
+    if (
+      existing.length === 0 ||
+      existing[0].contentDigest !== contentDigest
+    ) {
+      return problem(
+        request,
+        409,
+        "Observation conflict",
+        `Observation ${id} conflicts with an existing canonical record.`,
+        "urn:weather:problem:observation-conflict",
+      );
+    }
   }
-  if (existing.length > 0) {
-    return Response.json(
-      { observation_id: id, status: "already_accepted" },
-      { status: 200 },
-    );
-  }
-  const audit = await auditEventValues({
+
+  await recordAuditEvent({
     actor,
     action: "observation.admitted",
     resourceType: "observation",
     resourceId: id,
     detail: {
-      phenomenon: payload.phenomenon,
-      sourceDigest: payload.sourceDigest,
-      qualityDisposition: payload.qualityDisposition,
+      phenomenon: input.phenomenon,
+      sourceDigest: input.sourceDigest,
+      qualityDisposition: input.qualityDisposition,
     },
   });
-  await db.batch([
-    db.insert(observations).values({
-    id,
-    phenomenon: payload.phenomenon,
-    value: payload.value,
-    unit: payload.unit.trim(),
-    uncertainty: isFiniteNumber(payload.uncertainty)
-      ? payload.uncertainty
-      : null,
-    longitude: payload.longitude,
-    latitude: payload.latitude,
-    observedAt: observedAt.toISOString(),
-    ingestedAt: now,
-    qualityDisposition: payload.qualityDisposition,
-    qualityFlags: JSON.stringify([...new Set(qualityFlags)].sort()),
-    sourceId,
-    sourceDigest: payload.sourceDigest,
-    decoderVersion,
-    recordIndex,
-    contentDigest,
-    createdBy: actor,
-    }),
-    db
-      .insert(auditEvents)
-      .values(audit)
-      .onConflictDoNothing({ target: auditEvents.id }),
-  ]);
 
   return Response.json(
-    { observation_id: id, status: "accepted", ingested_at: now },
-    { status: 202 },
+    {
+      observation_id: id,
+      status: inserted.length > 0 ? "accepted" : "already_accepted",
+      ...(inserted.length > 0 ? { ingested_at: now } : {}),
+    },
+    { status: inserted.length > 0 ? 202 : 200 },
   );
 }
