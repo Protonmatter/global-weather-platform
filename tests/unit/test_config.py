@@ -45,3 +45,23 @@ def test_source_record_limit_must_cover_wnm_envelope() -> None:
         with pytest.raises(ValidationError):
             Settings(_env_file=None, max_source_record_bytes=invalid_limit)
     assert Settings(_env_file=None, max_source_record_bytes=8192).max_source_record_bytes == 8192
+
+
+def test_production_requires_a_control_plane_token() -> None:
+    with pytest.raises(ValidationError, match="WEATHER_CONTROL_PLANE_TOKEN"):
+        Settings(_env_file=None, environment="production")
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            environment="production",
+            control_plane_token="x" * 31,
+        )
+
+    settings = Settings(
+        _env_file=None,
+        environment="production",
+        control_plane_token="x" * 32,
+    )
+    assert settings.control_plane_token is not None
+    assert settings.control_plane_token.get_secret_value() == "x" * 32
+    assert "control_plane_token" not in settings.model_dump()

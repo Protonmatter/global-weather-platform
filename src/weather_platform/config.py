@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from weather_platform.storage.raw import DEFAULT_MAX_SOURCE_RECORD_BYTES
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     internal_otel_endpoint: str | None = None
     allow_external_egress: bool = False
+    control_plane_token: SecretStr | None = Field(default=None, min_length=32, exclude=True)
     # The deployment-wide source bound must still accommodate the complete
     # WIS2 notification envelope retained before interpretation.
     max_source_record_bytes: int = Field(
@@ -39,6 +40,12 @@ class Settings(BaseSettings):
         if parts.scheme not in {"http", "https"} or not allowed_host or parts.username is not None:
             raise ValueError("OpenTelemetry endpoint must identify an approved internal collector")
         return value
+
+    @model_validator(mode="after")
+    def require_production_control_plane_token(self) -> "Settings":
+        if self.environment.casefold() == "production" and self.control_plane_token is None:
+            raise ValueError("production requires WEATHER_CONTROL_PLANE_TOKEN")
+        return self
 
     data_filename: str = Field(default="observations.jsonl", exclude=True)
 

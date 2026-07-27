@@ -1,4 +1,6 @@
-.PHONY: install validate lint typecheck test run clean traceability
+.PHONY: install validate lint typecheck test run clean traceability \
+	operator-console-install operator-console-lint operator-console-typecheck \
+	operator-console-test operator-console-check
 
 install:
 	python -m pip install -e '.[dev]'
@@ -23,6 +25,20 @@ run:
 
 traceability:
 	python scripts/generate_traceability.py
+
+operator-console-install:
+	npm --prefix apps/operator-console ci
+
+operator-console-lint:
+	npm --prefix apps/operator-console run lint
+
+operator-console-typecheck:
+	npm --prefix apps/operator-console run typecheck
+
+operator-console-test:
+	npm --prefix apps/operator-console test
+
+operator-console-check: operator-console-lint operator-console-typecheck operator-console-test
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov dist build *.egg-info

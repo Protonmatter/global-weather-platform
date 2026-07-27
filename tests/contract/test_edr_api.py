@@ -101,6 +101,29 @@ def test_position_parameter_name_filter(tmp_path, monkeypatch) -> None:
     assert phenomena == {"wind_speed"}
 
 
+def test_position_supports_multiple_parameters_and_enforces_limit(tmp_path, monkeypatch) -> None:
+    c = client(tmp_path, monkeypatch)
+    seed(lon=10.0, lat=20.0, phenomenon="air_temperature")
+    seed(lon=10.0, lat=20.0, phenomenon="wind_speed")
+    seed(lon=10.0, lat=20.0, phenomenon="relative_humidity")
+
+    response = c.get(
+        "/v1/edr/collections/observations/position",
+        params={
+            "coords": "POINT(10 20)",
+            "parameter-name": "air_temperature,wind_speed",
+            "limit": 1,
+        },
+    )
+    assert response.status_code == 200
+    features = response.json()["features"]
+    assert len(features) == 1
+    assert features[0]["properties"]["phenomenon"] in {
+        "air_temperature",
+        "wind_speed",
+    }
+
+
 def test_position_excludes_quarantined_by_default(tmp_path, monkeypatch) -> None:
     c = client(tmp_path, monkeypatch)
     seed(lon=10.0, lat=20.0, disposition="quarantine", flags=["range_suspect"])

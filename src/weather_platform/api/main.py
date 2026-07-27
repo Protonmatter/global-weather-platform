@@ -1,6 +1,8 @@
+import uuid
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from http import HTTPStatus
+from secrets import compare_digest
 from typing import Annotated, Any
 
 import uvicorn
@@ -15,7 +17,7 @@ from weather_platform import __version__
 from weather_platform.api import edr
 from weather_platform.config import Settings
 from weather_platform.domain.model_catalog import GuidanceOrigin, ModelGuidanceCycle
-from weather_platform.domain.models import DigestVerification, Observation
+from weather_platform.domain.models import DigestVerification, Observation, QualityDisposition
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
 from weather_platform.ingestion.eccodes_backend import (
     EccodesUnavailableError,
@@ -36,6 +38,7 @@ raw_store = RawSourceStore(
 )
 model_catalog = ModelGuidanceCatalog(settings.model_catalog_path)
 adapter = JsonObservationAdapter()
+MODEL_CYCLE_ID_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "urn:weather:model-cycle-id")
 
 
 @asynccontextmanager
@@ -138,7 +141,33 @@ def health() -> dict[str, Any]:
         "telemetry_enabled": settings.internal_otel_endpoint is not None,
         "external_egress_enabled": settings.allow_external_egress,
         "max_source_record_bytes": raw_store.max_record_bytes,
+        "mutation_authentication_enabled": settings.control_plane_token is not None,
     }
+
+
+def _require_mutation_authorization(request: Request) -> str:
+    """Authorize an authenticated BFF mutation without logging its secret."""
+    configured = settings.control_plane_token
+    if configured is None:
+        # Local development retains the existing direct API workflow. Settings
+        # prevents production startup without an explicitly injected token.
+        return "development"
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, supplied = authorization.partition(" ")
+    expected = configured.get_secret_value()
+    if separator != " " or scheme.casefold() != "bearer" or not compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="valid control-plane service authentication is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    actor = request.headers.get("x-weather-actor", "").strip()
+    if not actor:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="an authenticated operator identity is required",
+        )
+    return actor
 
 
 def _observation_content(observation: Observation) -> dict[str, Any]:
@@ -148,7 +177,15 @@ def _observation_content(observation: Observation) -> dict[str, Any]:
     # in the comparison, and the first record keeps its acquisition metadata.
     return observation.model_dump(
         mode="json",
-        exclude={"provenance": {"digest_verification", "received_at", "source_uri"}},
+        exclude={
+            "ingestion_time": True,
+            "provenance": {
+                "digest_verification",
+                "received_at",
+                "ingested_at",
+                "source_uri",
+            },
+        },
     )
 
 
@@ -200,7 +237,8 @@ def _require_retained_source(digest: str) -> None:
 
 
 @app.post("/v1/observations", status_code=status.HTTP_202_ACCEPTED)
-def create_observation(observation: Observation) -> dict[str, str]:
+def create_observation(request: Request, observation: Observation) -> dict[str, str]:
+    _require_mutation_authorization(request)
     if observation.quality_disposition.value == "reject":
         raise HTTPException(
             status_code=422,
@@ -263,6 +301,7 @@ async def _read_bounded_source_record(request: Request) -> bytes:
 
 @app.post("/v1/source-records", status_code=status.HTTP_202_ACCEPTED)
 async def create_source_record(request: Request) -> dict[str, Any]:
+    _require_mutation_authorization(request)
     payload = await _read_bounded_source_record(request)
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
@@ -287,6 +326,7 @@ async def put_source_record(
     request: Request, digest: str = Path(pattern=r"^sha256:[a-f0-9]{64}$")
 ) -> JSONResponse:
     """Retain source bytes without decoding, for externally decoded observations."""
+    _require_mutation_authorization(request)
     payload = await _read_bounded_source_record(request)
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
@@ -318,7 +358,9 @@ def list_observations(
 
 
 def _cycle_summary(cycle: ModelGuidanceCycle) -> dict[str, Any]:
+    cycle_name = "|".join(cycle.cycle_key())
     return {
+        "id": str(uuid.uuid5(MODEL_CYCLE_ID_NAMESPACE, cycle_name)),
         "model_id": cycle.model_id,
         "model_version": cycle.model_version,
         "guidance_origin": cycle.guidance_origin.value,
@@ -326,11 +368,15 @@ def _cycle_summary(cycle: ModelGuidanceCycle) -> dict[str, Any]:
         "source_revision": cycle.source_revision,
         "completeness": cycle.completeness().value,
         "missing_field_count": len(cycle.missing_fields()),
+        "available_field_count": len(cycle.available_fields),
+        "expected_field_count": len(cycle.expected_fields),
+        "updated_at": cycle.initialized_at.isoformat(),
     }
 
 
 @app.post("/v1/model-cycles", status_code=status.HTTP_202_ACCEPTED)
-def register_model_cycle(cycle: ModelGuidanceCycle) -> dict[str, Any]:
+def register_model_cycle(request: Request, cycle: ModelGuidanceCycle) -> dict[str, Any]:
+    _require_mutation_authorization(request)
     # guidance_origin is required with no default, so no cycle enters the
     # catalog without an explicit imported/platform/warning/experimental label.
     model_catalog.register(cycle)
@@ -390,7 +436,11 @@ def edr_position(
         if parameter_name is not None
         else None
     )
-    candidates = store.list(limit=10_000, include_quarantined=include_quarantined)
+    candidates = (
+        observation
+        for observation in store.iter_observations()
+        if include_quarantined or observation.quality_disposition != QualityDisposition.QUARANTINE
+    )
     collection = edr.position_feature_collection(
         candidates,
         longitude=longitude,
@@ -399,16 +449,15 @@ def edr_position(
         start=start,
         end=end,
         phenomena=phenomena,
+        limit=limit,
     )
-    features = collection["features"]
-    assert isinstance(features, list)
-    collection["features"] = features[:limit]
     return collection
 
 
 @app.post("/v1/decode/grib-inventory")
 async def decode_grib_inventory(request: Request) -> dict[str, Any]:
     """Decode uploaded GRIB2 bytes into the field inventory that drives cycle completeness."""
+    _require_mutation_authorization(request)
     payload = await _read_bounded_source_record(request)
     if not payload:
         raise HTTPException(status_code=422, detail="GRIB2 payload must not be empty")

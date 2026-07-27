@@ -65,6 +65,10 @@ def test_partial_and_missing_cycles_are_explicit(tmp_path: Path, monkeypatch) ->
     partial = client.post("/v1/model-cycles", json=cycle("imported", available=[FIELD]))
     assert partial.json()["completeness"] == "partial"
     assert partial.json()["missing_field_count"] == 1
+    assert partial.json()["available_field_count"] == 1
+    assert partial.json()["expected_field_count"] == 2
+    assert partial.json()["id"]
+    assert partial.json()["updated_at"] == "2026-07-22T00:00:00+00:00"
 
     missing = client.post("/v1/model-cycles", json=cycle("imported", model_id="gefs", available=[]))
     assert missing.json()["completeness"] == "missing"

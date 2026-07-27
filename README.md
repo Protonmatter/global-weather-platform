@@ -8,6 +8,8 @@ This repository implements the first vertical slice:
 - canonical observation, forecast, event, and provenance schemas;
 - an append-only observation store with content-addressed raw source retention;
 - a FastAPI control-plane API;
+- a separately deployable Sites operator console for authenticated observation
+  and provenance workflows;
 - baseline probabilistic verification functions;
 - deny-by-default Kubernetes egress policy;
 - CI gates for specifications, schemas, tests, security, and release evidence.
@@ -53,6 +55,30 @@ already-retained source record; deposit undecoded bytes first with
 6. Scientific changes require declared baselines, locked validation data, and independent review.
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/NETWORK_BOUNDARY.md](docs/NETWORK_BOUNDARY.md).
+
+## Operator console
+
+The recovered ChatGPT Site source is maintained in
+[`apps/operator-console`](apps/operator-console). It is a separate
+visualization/operator trust zone: FastAPI remains authoritative, while the
+Site acts as an authenticated BFF and progressive-disclosure console.
+
+```bash
+make operator-console-install
+make operator-console-check
+```
+
+The console retains its existing Sites project binding so deployments from this
+repository update the same versioned Site. See
+[`apps/operator-console/README.md`](apps/operator-console/README.md) and
+[`adrs/ADR-0002-operator-console-trust-zone.md`](adrs/ADR-0002-operator-console-trust-zone.md).
+
+Authoritative deployments inject the same randomly generated, minimum
+32-character service secret as `CONTROL_PLANE_TOKEN` in Sites and
+`WEATHER_CONTROL_PLANE_TOKEN` in FastAPI. The secret is never committed. Sites
+removes caller-supplied authorization and identity headers, requires the
+verified workspace identity for mutations, and forwards only its service token
+and the verified operator identity.
 
 ## Publish the initial private GitHub repository
 
