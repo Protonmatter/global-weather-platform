@@ -3,6 +3,8 @@ import { sourceRecords } from "../../../db/schema";
 import { recordAuditEvent } from "../../../lib/audit";
 import {
   actorFromRequest,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   getBucket,
   problem,
   readBoundedRequestBody,
@@ -11,6 +13,9 @@ import {
 } from "../../../lib/weather";
 
 export async function POST(request: Request) {
+  if (controlPlaneMode() !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const actor = actorFromRequest(request);
   if (!actor) {
     return problem(

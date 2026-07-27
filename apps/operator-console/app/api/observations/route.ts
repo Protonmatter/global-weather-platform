@@ -4,6 +4,8 @@ import { observations, sourceRecords } from "../../../db/schema";
 import { recordAuditEvent } from "../../../lib/audit";
 import {
   actorFromRequest,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   deterministicObservationId,
   normalizeObservationInput,
   ObservationValidationError,
@@ -14,6 +16,9 @@ import {
 } from "../../../lib/weather";
 
 export async function GET(request: Request) {
+  if (controlPlaneMode() !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const url = new URL(request.url);
   const phenomenon = url.searchParams.get("phenomenon");
   const includeQuarantined =
@@ -40,6 +45,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (controlPlaneMode() !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const actor = actorFromRequest(request);
   if (!actor) {
     return problem(

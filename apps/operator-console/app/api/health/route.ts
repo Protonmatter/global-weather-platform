@@ -2,9 +2,15 @@ import { count } from "drizzle-orm";
 import { WEATHER_CONTRACT_VERSION } from "../../../contracts/weather";
 import { getDb } from "../../../db";
 import { auditEvents, observations, sourceRecords } from "../../../db/schema";
-import { getRuntimeBindings } from "../../../lib/weather";
+import {
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
+} from "../../../lib/weather";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (controlPlaneMode() !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const db = getDb();
   const [[observationCount], [sourceCount], [auditCount]] = await Promise.all([
     db.select({ value: count() }).from(observations),
@@ -16,9 +22,7 @@ export async function GET() {
     status: "ok",
     version: "0.3.0-site",
     contract_version: WEATHER_CONTRACT_VERSION,
-    control_plane_mode: getRuntimeBindings().CONTROL_PLANE_URL
-      ? "remote-authoritative"
-      : "embedded-fallback",
+    control_plane_mode: controlPlaneMode(),
     environment: "chatgpt-sites",
     telemetry_enabled: false,
     external_egress_enabled: false,

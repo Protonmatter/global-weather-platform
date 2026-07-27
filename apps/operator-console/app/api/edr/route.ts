@@ -3,6 +3,8 @@ import { getDb } from "../../../db";
 import { observations } from "../../../db/schema";
 import {
   angularDistanceDegrees,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   isPhenomenon,
   longitudeRanges,
   parseDatetimeInterval,
@@ -10,6 +12,9 @@ import {
 } from "../../../lib/weather";
 
 export async function GET(request: Request) {
+  if (controlPlaneMode() !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const url = new URL(request.url);
   const longitude = Number(url.searchParams.get("longitude"));
   const latitude = Number(url.searchParams.get("latitude"));

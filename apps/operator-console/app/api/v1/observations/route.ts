@@ -2,13 +2,14 @@ import {
   GET as localGet,
   POST as localPost,
 } from "../../observations/route";
-import { recordAuditEvent } from "../../../../lib/audit";
+import { recordAuditEventBestEffort } from "../../../../lib/audit";
 import {
   actorFromRequest,
   adaptControlPlaneObservations,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   ControlPlaneConfigurationError,
   deterministicObservationId,
-  getRuntimeBindings,
   mappedJsonResponse,
   normalizeObservationInput,
   ObservationValidationError,
@@ -19,14 +20,23 @@ import {
 } from "../../../../lib/weather";
 
 export async function GET(request: Request) {
+  const mode = controlPlaneMode();
+  if (mode === "local-development") return localGet(request);
+  if (mode === "misconfigured") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const upstream = await proxyToControlPlane(request, "/v1/observations");
   return upstream
     ? mappedJsonResponse(request, upstream, adaptControlPlaneObservations)
-    : localGet(request);
+    : controlPlaneConfigurationProblem(request);
 }
 
 export async function POST(request: Request) {
-  if (!getRuntimeBindings().CONTROL_PLANE_URL) return localPost(request);
+  const mode = controlPlaneMode();
+  if (mode === "local-development") return localPost(request);
+  if (mode === "misconfigured") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const actor = actorFromRequest(request);
   if (!actor) {
     return problem(
@@ -81,7 +91,7 @@ export async function POST(request: Request) {
     throw error;
   }
   if (upstream.ok) {
-    await recordAuditEvent({
+    const auditRecorded = await recordAuditEventBestEffort({
       actor,
       action: "observation.admitted",
       resourceType: "observation",
@@ -93,6 +103,7 @@ export async function POST(request: Request) {
         controlPlane: "remote-authoritative",
       },
     });
+    if (!auditRecorded) upstream.headers.set("x-weather-edge-audit-status", "failed");
   }
   return upstream;
 }

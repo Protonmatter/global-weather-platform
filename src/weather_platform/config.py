@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -16,7 +17,7 @@ MIN_MAX_SOURCE_RECORD_BYTES = 8192
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WEATHER_", env_file=".env", extra="ignore")
 
-    environment: str = "development"
+    environment: Literal["development", "test", "production"] = "development"
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
     internal_otel_endpoint: str | None = None
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_production_control_plane_token(self) -> "Settings":
-        if self.environment.casefold() == "production" and self.control_plane_token is None:
+        if self.environment == "production" and self.control_plane_token is None:
             raise ValueError("production requires WEATHER_CONTROL_PLANE_TOKEN")
         return self
 

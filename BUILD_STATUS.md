@@ -19,7 +19,8 @@
   routes, D1/R2 edge persistence, audit history, provenance-aware observations,
   model-cycle status, and OGC EDR-style position queries
 - BFF-to-FastAPI mutation authentication with fail-closed production
-  configuration, verified operator propagation, and caller-header stripping
+  configuration, explicit local-development fallback, verified operator
+  propagation, and caller-header stripping
 - Cross-runtime UUIDv5 observation identity and response-shaping contract tests
 - OGC API EDR position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
 - RFC 9457 problem responses for validation, rejection, and internal errors

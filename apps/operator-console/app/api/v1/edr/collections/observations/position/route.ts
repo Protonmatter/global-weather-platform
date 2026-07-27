@@ -1,16 +1,25 @@
 import { GET as localEdrPosition } from "../../../../../edr/route";
 import {
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   parseWktPoint,
   problem,
   proxyToControlPlane,
 } from "../../../../../../../lib/weather";
 
 export async function GET(request: Request) {
+  const mode = controlPlaneMode();
+  if (mode === "misconfigured") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const upstream = await proxyToControlPlane(
     request,
     "/v1/edr/collections/observations/position",
   );
   if (upstream) return upstream;
+  if (mode !== "local-development") {
+    return controlPlaneConfigurationProblem(request);
+  }
 
   const incoming = new URL(request.url);
   const coords = incoming.searchParams.get("coords");
