@@ -1,4 +1,10 @@
-import { proxyToControlPlane } from "../../../../../lib/weather";
+import {
+  adaptControlPlaneEdrCollections,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
+  mappedJsonResponse,
+  proxyToControlPlane,
+} from "../../../../../lib/weather";
 
 const observationsCollection = {
   id: "observations",
@@ -22,8 +28,15 @@ const observationsCollection = {
 };
 
 export async function GET(request: Request) {
-  return (
-    (await proxyToControlPlane(request, "/v1/edr/collections")) ??
-    Response.json({ collections: [observationsCollection] })
-  );
+  const mode = controlPlaneMode();
+  if (mode === "local-development") {
+    return Response.json({ collections: [observationsCollection] });
+  }
+  if (mode === "misconfigured") {
+    return controlPlaneConfigurationProblem(request);
+  }
+  const upstream = await proxyToControlPlane(request, "/v1/edr/collections");
+  return upstream
+    ? mappedJsonResponse(request, upstream, adaptControlPlaneEdrCollections)
+    : controlPlaneConfigurationProblem(request);
 }

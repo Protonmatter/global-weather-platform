@@ -8,6 +8,7 @@ interface Env {
   BUCKET: R2Bucket;
   CONTROL_PLANE_URL?: string;
   CONTROL_PLANE_TOKEN?: string;
+  CONTROL_PLANE_MODE?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

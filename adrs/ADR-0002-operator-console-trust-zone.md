@@ -21,14 +21,20 @@ operator trust zone.
   control-plane operations.
 - The Site is a backend-for-frontend for authentication, response shaping, and
   operator workflows.
-- Production deployments configure `CONTROL_PLANE_URL` server-side.
+- Production deployments configure `CONTROL_PLANE_URL` server-side and fail
+  closed when it is missing. Local D1/R2 routing requires the explicit
+  development-only `CONTROL_PLANE_MODE=local-development` binding.
 - Production deployments inject a shared service credential through
   `CONTROL_PLANE_TOKEN` in Sites and `WEATHER_CONTROL_PLANE_TOKEN` in FastAPI.
   FastAPI refuses production startup without it.
 - The BFF allowlists forwarded headers, discards caller authorization and
   identity claims, and forwards only the verified Sites actor with the service
   credential on mutations.
-- The Site-local D1/R2 path is a bounded prototype and development fallback.
+- The Site-local D1/R2 path is a bounded prototype and explicit development
+  fallback; it is not selected implicitly by missing production configuration.
+- A failed Site-local audit write after a successful authoritative mutation is
+  logged without operator or resource identifiers and surfaced through a
+  response header without changing the successful upstream status.
 - Sites identity headers are trusted only at the verified dispatch boundary.
 - The existing opaque Sites project binding remains versioned with the source.
 - The probabilistic forecast shell in `UX-001` remains deferred until real

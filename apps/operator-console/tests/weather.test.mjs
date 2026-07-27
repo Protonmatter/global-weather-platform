@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adaptControlPlaneEdrCollections,
   adaptControlPlaneHealth,
   adaptControlPlaneModelCycles,
   adaptControlPlaneObservations,
   angularDistanceDegrees,
+  controlPlaneMode,
   deterministicObservationId,
   isPhenomenon,
   longitudeRanges,
@@ -18,6 +20,7 @@ import {
   sha256Text,
   toControlPlaneObservation,
 } from "../lib/weather.ts";
+import { bestEffortAudit } from "../lib/audit-policy.ts";
 
 test("observation identifiers are deterministic UUIDv5-shaped values", async () => {
   const first = await deterministicObservationId("sha256:abc", "decoder-1", 0);
@@ -233,6 +236,47 @@ test("control-plane mutations reject short service credentials", async () => {
   }
 });
 
+test("local control-plane fallback requires an explicit development mode", () => {
+  const runtime = globalThis;
+  const originalEnvironment = runtime.__WEATHER_ENV__;
+  try {
+    runtime.__WEATHER_ENV__ = {};
+    assert.equal(controlPlaneMode(), "misconfigured");
+    runtime.__WEATHER_ENV__ = { CONTROL_PLANE_MODE: "local-development" };
+    assert.equal(controlPlaneMode(), "local-development");
+    runtime.__WEATHER_ENV__ = {
+      CONTROL_PLANE_MODE: "local-development",
+      CONTROL_PLANE_URL: " https://control.example/ ",
+    };
+    assert.equal(controlPlaneMode(), "remote-authoritative");
+  } finally {
+    runtime.__WEATHER_ENV__ = originalEnvironment;
+  }
+});
+
+test("failed edge auditing preserves the mutation result and sanitizes logs", async () => {
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...values) => logged.push(values.join(" "));
+  try {
+    const recorded = await bestEffortAudit(
+      {
+        action: "observation.admitted",
+        resourceType: "observation",
+      },
+      async () => {
+        throw new Error("database detail must not escape");
+      },
+    );
+    assert.equal(recorded, false);
+    assert.equal(logged.length, 1);
+    assert.match(logged[0], /edge_audit_write_failed/);
+    assert.doesNotMatch(logged[0], /operator@example|sensitive-observation|database detail/);
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test("authoritative responses are normalized to console DTOs", () => {
   const sourceDigest = `sha256:${"b".repeat(64)}`;
   const observations = adaptControlPlaneObservations([
@@ -281,4 +325,24 @@ test("authoritative responses are normalized to console DTOs", () => {
   });
   assert.equal(health.control_plane_mode, "remote-authoritative");
   assert.equal(health.persistence.canonical_observations, null);
+
+  const collections = adaptControlPlaneEdrCollections({
+    collections: [
+      {
+        id: "observations",
+        data_queries: {
+          position: {
+            link: {
+              href: "/v1/edr/collections/observations/position",
+              rel: "data",
+            },
+          },
+        },
+      },
+    ],
+  });
+  assert.equal(
+    collections.collections[0].data_queries.position.link.href,
+    "/api/v1/edr/collections/observations/position",
+  );
 });

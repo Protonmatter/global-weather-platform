@@ -78,7 +78,8 @@ Authoritative deployments inject the same randomly generated, minimum
 `WEATHER_CONTROL_PLANE_TOKEN` in FastAPI. The secret is never committed. Sites
 removes caller-supplied authorization and identity headers, requires the
 verified workspace identity for mutations, and forwards only its service token
-and the verified operator identity.
+and the verified operator identity. Production containers set
+`WEATHER_ENVIRONMENT=production` and fail startup unless that token is injected.
 
 ## Publish the initial private GitHub repository
 

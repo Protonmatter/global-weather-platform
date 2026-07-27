@@ -14,7 +14,13 @@ export type WeatherRuntimeEnv = {
   BUCKET?: R2Bucket;
   CONTROL_PLANE_URL?: string;
   CONTROL_PLANE_TOKEN?: string;
+  CONTROL_PLANE_MODE?: string;
 };
+
+export type ControlPlaneMode =
+  | "remote-authoritative"
+  | "local-development"
+  | "misconfigured";
 
 export type ObservationInput = {
   phenomenon?: unknown;
@@ -66,6 +72,24 @@ export function getRuntimeBindings(): WeatherRuntimeEnv {
     __WEATHER_ENV__?: WeatherRuntimeEnv;
   };
   return runtime.__WEATHER_ENV__ ?? {};
+}
+
+export function controlPlaneMode(): ControlPlaneMode {
+  const runtime = getRuntimeBindings();
+  if (runtime.CONTROL_PLANE_URL?.trim()) return "remote-authoritative";
+  return runtime.CONTROL_PLANE_MODE === "local-development"
+    ? "local-development"
+    : "misconfigured";
+}
+
+export function controlPlaneConfigurationProblem(request: Request) {
+  return problem(
+    request,
+    503,
+    "Control plane unavailable",
+    "CONTROL_PLANE_URL is required unless CONTROL_PLANE_MODE is explicitly set to local-development.",
+    "urn:weather:problem:control-plane-configuration",
+  );
 }
 
 export function getBucket(): R2Bucket {
@@ -210,7 +234,7 @@ export async function proxyToControlPlane(
   } = {},
 ) {
   const runtime = getRuntimeBindings();
-  const baseUrl = runtime.CONTROL_PLANE_URL?.replace(/\/+$/, "");
+  const baseUrl = runtime.CONTROL_PLANE_URL?.trim().replace(/\/+$/, "");
   if (!baseUrl) return null;
   const incomingUrl = new URL(request.url);
   const upstreamUrl = new URL(`${baseUrl}${upstreamPath}`);
@@ -395,6 +419,36 @@ export function adaptControlPlaneHealth(payload: unknown) {
       structured_store: "authoritative",
       object_store: "authoritative",
     },
+  };
+}
+
+export function adaptControlPlaneEdrCollections(payload: unknown) {
+  const document = record(payload, "EDR collections response");
+  if (!Array.isArray(document.collections)) {
+    throw new Error("The control plane returned an invalid EDR collection list.");
+  }
+  return {
+    ...document,
+    collections: document.collections.map((value) => {
+      const collection = record(value, "EDR collection");
+      const dataQueries = record(collection.data_queries, "EDR data_queries");
+      const position = record(dataQueries.position, "EDR position query");
+      const link = record(position.link, "EDR position link");
+      const href = requiredString(link.href, "EDR position href");
+      return {
+        ...collection,
+        data_queries: {
+          ...dataQueries,
+          position: {
+            ...position,
+            link: {
+              ...link,
+              href: href.startsWith("/v1/edr/") ? `/api${href}` : href,
+            },
+          },
+        },
+      };
+    }),
   };
 }
 

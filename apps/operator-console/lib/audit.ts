@@ -1,5 +1,6 @@
 import { getDb } from "../db";
 import { auditEvents } from "../db/schema";
+import { bestEffortAudit } from "./audit-policy";
 import { sha256Text } from "./weather";
 
 export async function auditEventValues(input: {
@@ -36,4 +37,13 @@ export async function recordAuditEvent(input: {
     .insert(auditEvents)
     .values(values)
     .onConflictDoNothing({ target: auditEvents.id });
+}
+
+export async function recordAuditEventBestEffort(
+  input: Parameters<typeof recordAuditEvent>[0],
+) {
+  return bestEffortAudit(
+    { action: input.action, resourceType: input.resourceType },
+    () => recordAuditEvent(input),
+  );
 }

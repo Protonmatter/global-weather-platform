@@ -1,9 +1,10 @@
 import { POST as localPost } from "../../source-records/route";
-import { recordAuditEvent } from "../../../../lib/audit";
+import { recordAuditEventBestEffort } from "../../../../lib/audit";
 import {
   actorFromRequest,
+  controlPlaneConfigurationProblem,
+  controlPlaneMode,
   ControlPlaneConfigurationError,
-  getRuntimeBindings,
   problem,
   proxyToControlPlane,
   readBoundedRequestBody,
@@ -12,7 +13,11 @@ import {
 } from "../../../../lib/weather";
 
 export async function POST(request: Request) {
-  if (!getRuntimeBindings().CONTROL_PLANE_URL) return localPost(request);
+  const mode = controlPlaneMode();
+  if (mode === "local-development") return localPost(request);
+  if (mode === "misconfigured") {
+    return controlPlaneConfigurationProblem(request);
+  }
   const actor = actorFromRequest(request);
   if (!actor) {
     return problem(
@@ -74,7 +79,7 @@ export async function POST(request: Request) {
   }
   if (!upstream.ok) return upstream;
 
-  await recordAuditEvent({
+  const auditRecorded = await recordAuditEventBestEffort({
     actor,
     action: "source_record.retained",
     resourceType: "source_record",
@@ -90,6 +95,11 @@ export async function POST(request: Request) {
       status: upstream.status === 201 ? "retained" : "already_retained",
       byte_length: payload.byteLength,
     },
-    { status: upstream.status },
+    {
+      status: upstream.status,
+      headers: auditRecorded
+        ? undefined
+        : { "x-weather-edge-audit-status": "failed" },
+    },
   );
 }

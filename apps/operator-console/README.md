@@ -10,7 +10,10 @@ supported API routes to FastAPI. Set `CONTROL_PLANE_TOKEN` to the same
 minimum-32-character secret injected into FastAPI as
 `WEATHER_CONTROL_PLANE_TOKEN`. The D1/R2 implementation is retained as a
 bounded development fallback; it must not become a second source of
-meteorological truth.
+meteorological truth. The local Vite configuration explicitly injects
+`CONTROL_PLANE_MODE=local-development`; deployed Sites fail closed with HTTP
+503 when `CONTROL_PLANE_URL` is absent and that development-only signal is not
+present.
 
 ## Prerequisites
 
@@ -47,6 +50,8 @@ npm run dev
 - `CONTROL_PLANE_URL` is runtime configuration and must not be committed.
 - `CONTROL_PLANE_TOKEN` is a secret runtime value. Never place it in the Sites
   manifest, source, logs, or audit detail.
+- `CONTROL_PLANE_MODE=local-development` is injected only by the local Vite
+  configuration. Do not configure it on a deployed Site.
 - Workspace identity headers are trusted only at the Sites dispatch boundary.
 - Mutating routes require an authenticated operator identity.
 - The BFF strips caller authorization and identity headers, then supplies its
@@ -67,7 +72,11 @@ bounded raw bytes by digest, then `POST /api/v1/observations` validates the
 operator DTO and translates it to the canonical FastAPI schema. The console
 never asks FastAPI's decode-and-ingest endpoint to interpret a retention-only
 payload. Local edge audit events record authenticated BFF activity; they are
-not presented as the authoritative meteorological store.
+not presented as the authoritative meteorological store. If an upstream
+mutation succeeds while D1 audit persistence fails, the BFF preserves the
+upstream success, emits a sanitized structured error, and returns
+`x-weather-edge-audit-status: failed` rather than reporting a false mutation
+failure.
 
 ## Deployment and rollback
 
