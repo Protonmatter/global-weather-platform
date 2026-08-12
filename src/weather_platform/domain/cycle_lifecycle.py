@@ -90,9 +90,7 @@ _ALLOWED_TRANSITIONS: dict[CycleState, frozenset[CycleState]] = {
             CycleState.QUARANTINED,
         }
     ),
-    CycleState.MISSING: frozenset(
-        {CycleState.PARTIAL, CycleState.QUARANTINED, CycleState.EXPIRED}
-    ),
+    CycleState.MISSING: frozenset({CycleState.PARTIAL, CycleState.QUARANTINED, CycleState.EXPIRED}),
     CycleState.PARTIAL: frozenset(
         {
             CycleState.MINIMUM_USABLE,
