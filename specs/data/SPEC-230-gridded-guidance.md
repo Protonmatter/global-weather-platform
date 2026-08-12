@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-230
 title: Canonical gridded model guidance
-status: review
+status: implemented
 owners:
   - data-architecture
   - earth-system-science
