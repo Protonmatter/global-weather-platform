@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-220
 title: Immutable weather source slices
-status: review
+status: implemented
 owners:
   - data-platform
   - security
