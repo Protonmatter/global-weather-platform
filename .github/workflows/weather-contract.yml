@@ -1,0 +1,62 @@
+name: weather-contract
+
+on:
+  pull_request:
+    paths:
+      - 'src/weather_platform/acquisition/**'
+      - 'src/weather_platform/domain/**'
+      - 'src/weather_platform/grids/**'
+      - 'src/weather_platform/serving/**'
+      - 'schemas/grids/**'
+      - 'schemas/manifests/**'
+      - 'deploy/k8s/weather-*.yaml'
+      - 'tests/unit/test_source_manifests.py'
+      - 'tests/unit/test_grid_assets.py'
+      - 'tests/unit/test_grib_index.py'
+      - 'tests/unit/test_gfs_manifest.py'
+      - 'tests/unit/test_cycle_lifecycle.py'
+      - 'tests/unit/test_coordinates.py'
+      - 'tests/unit/test_wind.py'
+      - 'tests/unit/test_vector_tiles.py'
+      - 'tests/contract/test_weather_schemas.py'
+      - 'tests/contract/test_weather_deployment_policy.py'
+      - '.github/workflows/weather-contract.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weather-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Create isolated environment
+        run: python -m venv .venv
+      - name: Install
+        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+      - name: Run weather contract tests
+        run: |
+          .venv/bin/python -m pytest -q \
+            tests/unit/test_source_manifests.py \
+            tests/unit/test_grid_assets.py \
+            tests/unit/test_grib_index.py \
+            tests/unit/test_gfs_manifest.py \
+            tests/unit/test_cycle_lifecycle.py \
+            tests/unit/test_coordinates.py \
+            tests/unit/test_wind.py \
+            tests/unit/test_vector_tiles.py \
+            tests/contract/test_weather_schemas.py \
+            tests/contract/test_weather_deployment_policy.py
