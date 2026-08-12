@@ -59,3 +59,33 @@ verifications:
   REPORT-SCORECARD-0001:
     status: planned
     notes: Sliced skill reporting awaits operational verification data.
+  TEST-SOURCE-0001:
+    status: planned
+    notes: Phase-1 source-slice domain and schema tests are committed before implementation.
+  TEST-GRID-0001:
+    status: planned
+    notes: Phase-1 grid-asset domain tests are committed before implementation.
+  TEST-SCHEMA-0002:
+    status: planned
+    notes: Phase-1 weather schema parity tests are committed before implementation.
+  TEST-GRIB-0001:
+    status: planned
+    notes: Phase-1 strict GRIB index parser tests are committed before implementation.
+  TEST-CYCLE-0001:
+    status: planned
+    notes: Phase-1 model-cycle lifecycle tests are committed before implementation.
+  TEST-WIND-0001:
+    status: planned
+    notes: Phase-1 longitude and meteorological wind-vector tests are committed before implementation.
+  TEST-TILE-0001:
+    status: planned
+    notes: Phase-1 vector-tile wire-format tests are committed before implementation.
+  TEST-DEPLOY-0001:
+    status: planned
+    notes: Phase-1 Kubernetes workload and egress policy tests are committed before implementation.
+  TEST-SECRET-0001:
+    status: planned
+    notes: Automated secret redaction tests will be implemented with the live provider client.
+  TEST-UX-0001:
+    status: planned
+    notes: Browser, accessibility, reduced-motion, and visual-regression evidence awaits the forecast-map application slice.
