@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:grid-field-asset:1",
+  "title": "Canonical gridded model guidance asset",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "asset_id",
+    "model_id",
+    "model_version",
+    "guidance_origin",
+    "initialized_at",
+    "valid_at",
+    "lead_seconds",
+    "phenomenon",
+    "source_variable",
+    "level_type",
+    "unit",
+    "grid_id",
+    "crs",
+    "nx",
+    "ny",
+    "longitude_convention",
+    "storage_encoding",
+    "source_record_digest",
+    "normalized_digest",
+    "source_revision",
+    "decoder_version",
+    "quality_disposition",
+    "quality_flags",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "asset_id": {"type": "string", "format": "uuid"},
+    "model_id": {"type": "string", "minLength": 1},
+    "model_version": {"type": "string", "minLength": 1},
+    "guidance_origin": {
+      "enum": ["official_warning", "imported", "platform", "experimental"]
+    },
+    "initialized_at": {"type": "string", "format": "date-time"},
+    "valid_at": {"type": "string", "format": "date-time"},
+    "lead_seconds": {"type": "integer", "minimum": 0},
+    "ensemble_member": {
+      "anyOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "null"}
+      ]
+    },
+    "phenomenon": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "source_variable": {"type": "string", "minLength": 1},
+    "level_type": {"type": "string", "minLength": 1},
+    "level_value": {"type": ["number", "null"]},
+    "level_unit": {
+      "anyOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "null"}
+      ]
+    },
+    "unit": {"type": "string", "minLength": 1},
+    "grid_id": {"type": "string", "minLength": 1},
+    "crs": {"type": "string", "minLength": 1},
+    "nx": {"type": "integer", "minimum": 1},
+    "ny": {"type": "integer", "minimum": 1},
+    "longitude_convention": {"enum": ["0_360", "-180_180"]},
+    "storage_encoding": {
+      "enum": ["grib2", "zarr-v3", "cog", "binary-vector-tile"]
+    },
+    "source_record_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "normalized_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "source_revision": {"type": "string", "minLength": 1},
+    "decoder_version": {"type": "string", "minLength": 1},
+    "quality_disposition": {
+      "enum": ["accept", "accept_with_flags", "quarantine", "reject"]
+    },
+    "quality_flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "provenance": {"$ref": "urn:weather:provenance:1"}
+  },
+  "additionalProperties": false
+}
