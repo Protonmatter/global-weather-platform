@@ -1,4 +1,4 @@
-from datetime import datetime
+from itertools import pairwise
 from typing import Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -71,12 +71,12 @@ class SourceSliceManifest(BaseModel):
         if self.selection.byte_end >= self.upstream.content_length:
             raise ValueError("selected byte range exceeds upstream content length")
 
-        timestamps: tuple[datetime, ...] = (
+        timestamps = (
             self.discovered_at,
             self.download_started_at,
             self.received_at,
             self.retained_at,
         )
-        if any(later < earlier for earlier, later in zip(timestamps, timestamps[1:])):
+        if any(later < earlier for earlier, later in pairwise(timestamps)):
             raise ValueError("acquisition timestamps must be monotonic")
         return self
