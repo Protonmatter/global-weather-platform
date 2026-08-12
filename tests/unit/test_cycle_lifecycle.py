@@ -10,7 +10,11 @@ from weather_platform.domain.cycle_lifecycle import (
 
 
 def test_empty_cycle_is_missing_and_not_usable() -> None:
-    result = evaluate_cycle(set(), minimum_fields=GFS_MINIMUM_FIELDS, complete_fields=GFS_COMPLETE_FIELDS)
+    result = evaluate_cycle(
+        set(),
+        minimum_fields=GFS_MINIMUM_FIELDS,
+        complete_fields=GFS_COMPLETE_FIELDS,
+    )
     assert result.state is CycleState.MISSING
     assert not result.usable
     assert result.completeness_ratio == 0.0
