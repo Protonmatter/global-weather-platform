@@ -22,7 +22,7 @@ def field(
 
 
 def test_minimum_manifest_contains_core_iqair_style_fields() -> None:
-    assert GFS_MINIMUM_FIELDS == frozenset(
+    assert frozenset(
         {
             "u_wind_10m",
             "v_wind_10m",
@@ -30,7 +30,7 @@ def test_minimum_manifest_contains_core_iqair_style_fields() -> None:
             "relative_humidity_2m",
             "air_pressure_at_mean_sea_level",
         }
-    )
+    ) == GFS_MINIMUM_FIELDS
     assert GFS_MINIMUM_FIELDS < GFS_COMPLETE_FIELDS
 
 
