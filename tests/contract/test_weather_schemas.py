@@ -104,14 +104,16 @@ def test_source_slice_model_and_schema_accept_the_same_record() -> None:
     record = source_record()
     model = SourceSliceManifest.model_validate(record)
     serialized = json.loads(model.model_dump_json())
-    assert list(validator("schemas/manifests/source-slice.schema.json").iter_errors(serialized)) == []
+    errors = validator("schemas/manifests/source-slice.schema.json").iter_errors(serialized)
+    assert list(errors) == []
 
 
 def test_grid_asset_model_and_schema_accept_the_same_record() -> None:
     record = grid_record()
     model = GridFieldAsset.model_validate(record)
     serialized = json.loads(model.model_dump_json())
-    assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(serialized)) == []
+    errors = validator("schemas/grids/grid-field-asset.schema.json").iter_errors(serialized)
+    assert list(errors) == []
 
 
 def test_model_enforces_cross_field_invariants_not_expressible_in_portable_json_schema() -> None:
