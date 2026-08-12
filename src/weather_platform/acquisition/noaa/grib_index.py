@@ -74,7 +74,8 @@ def _parse_line(line: str, line_number: int) -> _ParsedLine:
         message_number = int(parts[0])
         offset = int(parts[1])
     except ValueError as exc:
-        raise GribIndexError(f"line {line_number} contains a non-integer identity or offset") from exc
+        message = f"line {line_number} contains a non-integer identity or offset"
+        raise GribIndexError(message) from exc
 
     if message_number <= 0:
         raise GribIndexError(f"line {line_number} message number must be positive")
