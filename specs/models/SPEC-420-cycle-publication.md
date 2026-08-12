@@ -1,7 +1,7 @@
 ---
 spec_id: SPEC-420
 title: Model cycle publication lifecycle
-status: review
+status: implemented
 owners:
   - application-platform
   - data-platform
