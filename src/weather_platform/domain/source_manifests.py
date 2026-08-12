@@ -1,0 +1,82 @@
+from datetime import datetime
+from typing import Literal, Self
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+SHA256_PATTERN = r"^sha256:[a-f0-9]{64}$"
+
+
+class UpstreamObject(BaseModel):
+    """Identity and size metadata for one provider object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bucket: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    etag: str | None = None
+    last_modified: AwareDatetime | None = None
+    content_length: int = Field(gt=0)
+
+
+class ByteSelection(BaseModel):
+    """An inclusive byte interval selected from an upstream object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    byte_start: int = Field(ge=0)
+    byte_end: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> Self:
+        if self.byte_end < self.byte_start:
+            raise ValueError("byte_end must be greater than or equal to byte_start")
+        return self
+
+    @property
+    def length(self) -> int:
+        return self.byte_end - self.byte_start + 1
+
+
+class SliceVerification(BaseModel):
+    """Platform integrity evidence for a selectively retrieved source slice."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index_digest: str = Field(pattern=SHA256_PATTERN)
+    payload_digest: str = Field(pattern=SHA256_PATTERN)
+    transport_verified: bool
+
+
+class SourceSliceManifest(BaseModel):
+    """Immutable acquisition context for one provider object byte range."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    provider: str = Field(min_length=1)
+    dataset: str = Field(min_length=1)
+    product: str = Field(min_length=1)
+    cycle: AwareDatetime
+    forecast_hour: int = Field(ge=0)
+    upstream: UpstreamObject
+    selection: ByteSelection
+    verification: SliceVerification
+    discovered_at: AwareDatetime
+    download_started_at: AwareDatetime
+    received_at: AwareDatetime
+    retained_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_manifest(self) -> Self:
+        if self.selection.byte_end >= self.upstream.content_length:
+            raise ValueError("selected byte range exceeds upstream content length")
+
+        timestamps: tuple[datetime, ...] = (
+            self.discovered_at,
+            self.download_started_at,
+            self.received_at,
+            self.retained_at,
+        )
+        if any(later < earlier for earlier, later in zip(timestamps, timestamps[1:])):
+            raise ValueError("acquisition timestamps must be monotonic")
+        return self
