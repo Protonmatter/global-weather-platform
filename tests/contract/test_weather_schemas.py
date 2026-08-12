@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 from referencing import Registry, Resource
 
 from weather_platform.domain.grid_assets import GridFieldAsset
@@ -112,11 +114,23 @@ def test_grid_asset_model_and_schema_accept_the_same_record() -> None:
     assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(serialized)) == []
 
 
-def test_schemas_reject_out_of_bounds_range_and_time_mismatch() -> None:
+def test_model_enforces_cross_field_invariants_not_expressible_in_portable_json_schema() -> None:
     source = source_record()
     source["selection"] = {"byte_start": 900, "byte_end": 1000}
-    assert list(validator("schemas/manifests/source-slice.schema.json").iter_errors(source))
+    with pytest.raises(ValidationError):
+        SourceSliceManifest.model_validate(source)
 
     grid = grid_record()
     grid["valid_at"] = (NOW + timedelta(hours=7)).isoformat().replace("+00:00", "Z")
+    with pytest.raises(ValidationError):
+        GridFieldAsset.model_validate(grid)
+
+
+def test_schemas_reject_structurally_invalid_records() -> None:
+    source = source_record()
+    source["selection"] = {"byte_start": -1, "byte_end": 100}
+    assert list(validator("schemas/manifests/source-slice.schema.json").iter_errors(source))
+
+    grid = grid_record()
+    grid["normalized_digest"] = "md5:deadbeef"
     assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
