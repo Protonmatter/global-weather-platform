@@ -2,6 +2,7 @@ import math
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import chain
 
 _MAGIC = b"WVEC"
 _VERSION = 1
@@ -63,7 +64,7 @@ def encode_vector_tile(
     expected_count = width * height
     if len(u_components) != expected_count:
         raise VectorTileError("component sample count does not match tile dimensions")
-    if any(not math.isfinite(value) for value in (*u_components, *v_components)):
+    if any(not math.isfinite(value) for value in chain(u_components, v_components)):
         raise VectorTileError("vector components must be finite")
 
     scale_u, offset_u, encoded_u = _quantize(u_components)
@@ -80,7 +81,9 @@ def encode_vector_tile(
         offset_v,
     )
     body = bytearray(expected_count * _SAMPLE.size)
-    for index, (encoded_u_value, encoded_v_value) in enumerate(zip(encoded_u, encoded_v)):
+    for index, (encoded_u_value, encoded_v_value) in enumerate(
+        zip(encoded_u, encoded_v, strict=True)
+    ):
         _SAMPLE.pack_into(body, index * _SAMPLE.size, encoded_u_value, encoded_v_value)
     return header + bytes(body)
 
