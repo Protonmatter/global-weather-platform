@@ -6,7 +6,10 @@ from weather_platform.acquisition.cli import EX_CONFIG, run
 
 
 @pytest.mark.contract
-def test_acquisition_cli_reports_contract_only_mode(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_acquisition_cli_reports_contract_only_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setattr(sys, "argv", ["weather-platform-acquisition"])
     assert run() == 0
     assert "live provider transport is disabled" in capsys.readouterr().out
