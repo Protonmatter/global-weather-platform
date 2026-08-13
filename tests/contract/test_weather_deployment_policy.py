@@ -1,6 +1,8 @@
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,3 +114,30 @@ def test_serving_namespace_denies_arbitrary_egress() -> None:
     assert deny["spec"]["policyTypes"] == ["Ingress", "Egress"]
     assert deny["spec"]["ingress"] == []
     assert deny["spec"]["egress"] == []
+
+
+def test_acquisition_manifest_uses_an_immutable_image_placeholder() -> None:
+    items = documents("deploy/k8s/weather-acquisition.yaml")
+    deployment = find(items, "Deployment", "weather-gfs-acquisition")
+    image = deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+    assert image == "weather-platform-runtime@sha256:" + "0" * 64
+    assert ":0.1.0" not in image
+
+
+def test_release_renderer_requires_a_real_digest(tmp_path) -> None:
+    module = import_module("scripts.render_release_manifest")
+    source = tmp_path / "source.yaml"
+    output = tmp_path / "output.yaml"
+    source.write_text(
+        "image: weather-platform-runtime@sha256:" + "0" * 64 + "\n",
+        encoding="utf-8",
+    )
+    image = "registry.example/weather/platform@sha256:" + "b" * 64
+    module.render_manifest(source, output, image)
+    assert f"image: {image}" in output.read_text(encoding="utf-8")
+    for invalid in (
+        "registry.example/weather/platform:latest",
+        "registry.example/weather/platform@sha256:" + "0" * 64,
+    ):
+        with pytest.raises(ValueError):
+            module.validate_image_reference(invalid)
