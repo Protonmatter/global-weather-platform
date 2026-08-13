@@ -15,7 +15,7 @@ requirements:
     priority: critical
     verification: [TEST-GRID-0001]
     release_gate: architecture
-  - id: DATA-GRID-TIME-0002
+  - id: DATA-GRID-0002
     statement: Every grid asset MUST identify model initialization time, valid time, and lead, and valid time MUST equal initialization time plus lead.
     priority: critical
     verification: [TEST-GRID-0001]
