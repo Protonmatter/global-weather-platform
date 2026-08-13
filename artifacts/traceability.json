@@ -217,7 +217,7 @@
           ]
         },
         {
-          "id": "DATA-GRID-TIME-0002",
+          "id": "DATA-GRID-0002",
           "priority": "critical",
           "release_gate": "scientific",
           "statement": "Every grid asset MUST identify model initialization time, valid time, and lead, and valid time MUST equal initialization time plus lead.",
