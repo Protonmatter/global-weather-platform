@@ -1,62 +1,125 @@
-# Build status — baseline 0.1.0
+# Build status — baseline 0.1.0 with RFC-0002 Phase 1
 
 ## Implemented
 
+### Specification, governance, and release evidence
+
+- RFC-0002 operational weather-data architecture, approved design record, and task-level implementation plan
+- Executable acquisition-boundary, source-slice, gridded-guidance, cycle-publication, and scientific-validation specifications
+- Requirement and verification registry with generated traceability checked in CI
+- RFC 2119/RFC 8174 normative language and RFC 9457 API-problem conventions retained
+- GitHub Actions pinned to current commit SHAs using Node-24-capable official action releases
+
+### Existing platform foundation
+
 - Spec front-matter schema and normative requirement validation
-- Verification evidence registry checked against spec statuses
+- Verification evidence registry checked against implemented specification statuses
 - Generated requirement traceability artifact
-- Observation, forecast, model-cycle, and provenance JSON Schemas
+- Observation, forecast, model-cycle, event, source-slice, grid-asset, and provenance JSON Schemas
 - Typed canonical observation model with schema conformance tests
 - Append-only JSONL observation store
-- Content-addressed, write-once raw source record store with no-follow regular-file enforcement and a configurable size bound
-- Source-record ingestion that retains raw bytes before decoding, binds provenance digests, and derives deterministic content-addressed observation ids
-- Transport-agnostic WIS2 notification consumer: topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
-- Canonical observation admission requires a retained source record, serialized across processes by an advisory file lock
+- Content-addressed, write-once raw source-record store with no-follow regular-file enforcement and a configurable size bound
+- Source-record ingestion that retains raw bytes before decoding, binds provenance digests, and derives deterministic content-addressed observation IDs
+- Transport-agnostic WIS2 notification consumer with topic validation, retained notifications, upstream integrity verification, and distinct publication, receipt, and ingestion times
+- Canonical observation admission requiring a retained source record and serialized across processes by an advisory file lock
 - Quarantined observations retained and queryable but held out of the default serving path
-- Model guidance catalog with the four-way guidance distinction (imported, platform, official-warning, experimental) and explicit missing/partial cycle completeness
+- Model-guidance catalog with imported, platform, official-warning, and experimental origins and explicit missing/partial/complete inventory semantics
 - FastAPI health, ingest, source-record, model-cycle, and query endpoints
-- Separately deployable Sites operator console with authenticated mutation
-  routes, D1/R2 edge persistence, audit history, provenance-aware observations,
-  model-cycle status, and OGC EDR-style position queries
-- BFF-to-FastAPI mutation authentication with fail-closed production
-  configuration, explicit local-development fallback, verified operator
-  propagation, and caller-header stripping
-- Cross-runtime UUIDv5 observation identity and response-shaping contract tests
-- OGC API EDR position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
+- OGC API EDR-style position query with datetime subsetting, antimeridian-safe matching, and GeoJSON responses exposing units, provenance, and times
 - RFC 9457 problem responses for validation, rejection, and internal errors
-- Brier score, ensemble CRPS (standard and fair estimators), reliability bins, quantile invariants
-- Dependence-aware baseline fusion weighting and effective ensemble size
-- Verification dataset ledger: leakage-safe availability-at-issue partitioning and versioned, reproducible persistence and climatology baselines
-- Telemetry disabled by default and restricted to internal collector names
-- Deny-by-default Kubernetes network policy
-- GitHub-hosted pull-request quality gates plus isolated self-hosted release and
-  deep-security workflows, with a runner registration helper and runbook
+- Brier score, ensemble CRPS, reliability bins, quantile invariants, dependence-aware baseline fusion weighting, and effective ensemble size
+- Verification dataset ledger with availability-at-issue partitioning and reproducible climatology baselines
+
+### Operational weather Phase 1
+
+- `SourceSliceManifest` domain contract and JSON Schema for bounded, inclusive provider byte ranges
+- Platform-calculated SHA-256 identities kept distinct from provider ETags
+- Monotonic discovery, download, receipt, and retention timestamp validation
+- `GridFieldAsset` domain contract and JSON Schema for one model variable, level, valid time, grid, and ensemble member
+- Enforced invariant: `valid_at == initialized_at + lead_seconds`
+- Enforced source-digest/provenance agreement and accepted-asset quality rules
+- Strict NOAA-style GRIB index parsing with monotonic offsets, bounded final-message range derivation, and malformed-input rejection
+- Deterministic required-field selection that fails on missing or ambiguous matches
+- GFS minimum-usable field manifest for 10 m U/V wind, 2 m temperature, 2 m relative humidity, and mean sea-level pressure
+- Extended complete manifest including gust, cloud cover, and precipitation
+- Canonical ecCodes-to-platform GFS field identity mapping
+- Explicit cycle states: discovered, index available, downloading, missing, partial, minimum usable, complete, quarantined, superseded, and expired
+- Manifest-driven cycle publication eligibility with duplicate-arrival deduplication and illegal-transition rejection
+- GeoJSON-range longitude normalization and antimeridian-safe angular distance
+- Meteorological direction-to-U/V conversion validated against all cardinal directions
+- Versioned deterministic binary U/V tile format with signed 16-bit interleaving, explicit scale/offset metadata, strict length validation, and bounded reconstruction error
+- Fail-closed `weather-platform-acquisition` command; live transport is not enabled
+- Hardened acquisition deployment contract with non-root execution, dropped capabilities, read-only root filesystem, resource bounds, and provider-scoped Cilium egress
+- Separate serving namespace with default-deny ingress and egress
+- Acquisition Deployment intentionally fixed at `replicas: 0` pending the live-transport activation gate
+
+### Validation and CI/CD
+
+- Repository-wide quality gate: Ruff lint, Ruff format, strict mypy, complete tests, and branch coverage
+- Dedicated weather contract gate
+- Dedicated JSON Schema and Kubernetes deployment-contract gate
+- Dedicated scientific-validation gate
+- Fixture-driven vertical-slice integration gate
+- Immutable adversarial regression suite for antimeridian behavior, wind direction, duplicate arrivals, forecast-hour ambiguity, and model valid-time integrity
+- JUnit evidence artifacts for focused schema, scientific, contract, and integration workflows
+- Local Make targets matching the CI test taxonomy
+
+### Operator console
+
+- Separately deployable Sites operator console with authenticated mutation routes, D1/R2 edge persistence, audit history, provenance-aware observations, model-cycle status, and OGC EDR-style position queries
+- BFF-to-FastAPI mutation authentication with fail-closed production configuration, explicit local-development fallback, verified operator propagation, and caller-header stripping
+- Cross-runtime UUIDv5 observation identity and response-shaping contract tests
+- Portable Bash invocation of Sites build/install/validation helpers without relying on executable-bit preservation
+- Node 22 TypeScript-stripping unit-test path for direct tests of tracked TypeScript sources
+- Rendered artifact tests for both unauthenticated sign-in redirection and verified-workspace HTML rendering
 
 ## Verification
 
-- Specification validation: 19 requirements and 13 verification references
-- JSON Schema meta-validation: 5 schemas
-- Unit and contract tests: 147 passed
-- Branch-aware coverage: 94.33%
-- Ruff: passed
-- Mypy strict mode: passed
-- API smoke test: passed
+Verified in GitHub Actions on the RFC-0002 Phase-1 pull request:
+
+- Specification validation: **40 requirements and 23 verification references**
+- JSON Schema meta-validation: **7 schemas**
+- Python tests: **233 passed**
+- Python branch coverage: **93.28%** against a required minimum of 90%
+- Ruff lint: passed
+- Ruff format: **106 files already formatted**
+- Mypy strict mode: **41 source files, no issues**
+- Weather contract workflow: passed
+- Schema contract workflow: passed
+- Scientific validation workflow: passed
+- Fixture-driven weather integration workflow: passed
+- Operator-console lint and TypeScript checks: passed
+- Operator-console unit tests: **22 passed**
+- Operator-console production build and artifact validation: passed
+- Operator-console rendered-artifact tests: **2 passed**
+- Full CI bootstrap workflow: passed
+- Generated traceability freshness check: passed
 
 ## Partially implemented
 
-- Acquisition transport integrity: issuer-allowlist verification, fail-closed on unpinned issuers, and upstream-checksum verification are implemented and tested; live MQTT/HTTPS acquisition wiring awaits a deployment target
-- GRIB2/BUFR decoder service: real ecCodes GRIB2 decoding into the model-cycle field inventory is implemented and tested (runtime ecCodes version recorded, malformed rejection, golden-corpus drift detection); real ecCodes BUFR decoding into canonical observations is the remaining part. ecCodes is an optional (`eccodes`) extra
+- Acquisition transport integrity: issuer-allowlist verification, fail-closed handling of unpinned issuers, and upstream-checksum verification are implemented and tested in the existing transport-trust core; live NOAA HTTP/S3/SQS wiring is not enabled
+- GRIB2/BUFR decoder service: real ecCodes GRIB2 inventory decoding is implemented and tested; numeric global-array extraction, canonical array persistence, and full BUFR-to-observation decoding remain follow-on work
+- OGC API EDR: position queries exist; gridded area and cube queries await production grid persistence
+- Forecast-product UI: the operator console covers authenticated control-plane workflows; the separate forecast-map experience remains specified but not implemented
 
 ## Explicitly not implemented yet
 
-- Live MQTT session and HTTP download wiring for the WIS2 consumer
-- GRIB2, BUFR, radar, satellite, or external NWP adapters
-- Object storage and indexed canonical storage
-- Data assimilation
-- Operational calibration or model fusion
-- Probabilistic forecast visualization client / progressive-disclosure forecast
-  shell (UX-001 remains deferred pending forecast products; the implemented
-  operator console covers control-plane workflows only)
+- Live NOAA NODD HTTP/S3 range acquisition
+- NOAA publication-event or SQS integration
+- Production object storage, PostgreSQL metadata catalog, or Zarr array store for gridded guidance
+- Atomic live cycle publication backed by persistent model assets
+- Complete numeric GRIB field-array extraction and normalization
+- OGC API EDR area and cube queries over persisted grids
+- Scalar map tiles, binary vector tile HTTP endpoints, map manifests, CDN deployment, or cache invalidation
+- GEFS member acquisition and denominator-aware operational probability products
+- Model-versus-observation operational calibration or probabilistic fusion
+- `apps/forecast-map`, WebGL wind animation, responsive forecast experience, browser accessibility suite, and visual regression suite
+- OpenWeather One Call adapter, quota control, point-condition enrichment, or alert aggregation
+- Provider credential-redaction tests tied to a live client
+- Production authentication and authorization beyond the implemented control-plane service credential and verified operator identity
+- Production load qualification, resilience/chaos exercises, staging replay, canary rollout, disaster recovery, or live data rollback exercises
 - Numerical weather-model execution
-- Fine-grained production role authorization beyond the implemented BFF
-  service credential and authenticated operator identity
+
+## Activation boundary
+
+The acquisition Deployment MUST remain at zero replicas until the live-transport activation checklist in `docs/WEATHER_DATA_DEPLOYMENT.md` is satisfied. Phase 1 proves the contracts, scientific invariants, deployment boundary, and deterministic fixture path; it does not claim an operational live weather feed.
