@@ -2,7 +2,20 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+
+_ALLOWED_DETAIL_KEYS = frozenset(
+    {
+        "byte_length",
+        "completeness",
+        "content_digest",
+        "error_type",
+        "guidance_origin",
+        "phenomenon",
+        "quality_disposition",
+        "source_digest",
+    }
+)
 
 
 class MutationResult(StrEnum):
@@ -27,3 +40,11 @@ class MutationAuditEvent(BaseModel):
     occurred_at: AwareDatetime
     software_version: str = Field(min_length=1)
     detail: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("detail")
+    @classmethod
+    def validate_detail_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
+        unsupported = set(value) - _ALLOWED_DETAIL_KEYS
+        if unsupported:
+            raise ValueError("audit detail contains sensitive or unsupported keys")
+        return value
