@@ -82,7 +82,12 @@ class GridFieldAsset(BaseModel):
 
     @model_validator(mode="after")
     def validate_semantics(self) -> Self:
-        expected_valid_at = self.initialized_at + timedelta(seconds=self.lead_seconds)
+        try:
+            expected_valid_at = self.initialized_at + timedelta(seconds=self.lead_seconds)
+        except OverflowError as exc:
+            raise ValueError(
+                "initialized_at plus lead_seconds exceeds supported datetime range"
+            ) from exc
         if self.valid_at != expected_valid_at:
             raise ValueError("valid_at must equal initialized_at plus lead_seconds")
 
