@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import pytest
 
 from weather_platform.acquisition.noaa.gfs import GFS_COMPLETE_FIELDS, GFS_MINIMUM_FIELDS
@@ -15,7 +17,7 @@ SCOPE = CycleProductScope(grid="gfs-0p25-global", lead_hours=6, member=None)
 
 
 def arrivals(
-    names: object,
+    names: Iterable[str],
     *,
     scope: CycleProductScope = SCOPE,
 ) -> list[CycleFieldArrival]:
