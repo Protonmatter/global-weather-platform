@@ -69,7 +69,7 @@ class GridFieldAsset(BaseModel):
     decoder_version: str = Field(min_length=1)
     quality_disposition: QualityDisposition
     quality_flags: tuple[str, ...] = ()
-    provenance: Provenance
+    provenance: GridFieldProvenance
 
     @field_validator("quality_flags")
     @classmethod
