@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 from pydantic import ValidationError
@@ -79,3 +80,64 @@ def test_provider_etag_is_metadata_not_content_identity() -> None:
     item = manifest()
     assert item.upstream.etag == '"provider-etag"'
     assert item.verification.payload_digest != item.upstream.etag
+
+
+def test_manifest_and_nested_evidence_are_frozen_after_validation() -> None:
+    item = manifest()
+    with pytest.raises(ValidationError, match="frozen"):
+        item.retained_at = NOW
+    with pytest.raises(ValidationError, match="frozen"):
+        item.selection.byte_end = 10_000
+    with pytest.raises(ValidationError, match="frozen"):
+        item.verification.payload_digest = DIGEST_A
+
+
+def test_from_retained_bytes_computes_platform_digests() -> None:
+    index_bytes = b"1:0:d=2026081218:UGRD:10 m above ground:6 hour fcst:\n"
+    payload_bytes = b"0123456789"
+    item = SourceSliceManifest.from_retained_bytes(
+        provider="noaa",
+        dataset="gfs",
+        product="0p25",
+        cycle=NOW,
+        forecast_hour=6,
+        upstream=UpstreamObject(
+            bucket="noaa-gfs-bdp-pds",
+            key="gfs.20260812/18/atmos/gfs.t18z.pgrb2.0p25.f006",
+            content_length=1_000,
+        ),
+        selection=ByteSelection(byte_start=100, byte_end=109),
+        index_bytes=index_bytes,
+        payload_bytes=payload_bytes,
+        transport_verified=True,
+        discovered_at=NOW,
+        download_started_at=NOW + timedelta(seconds=1),
+        received_at=NOW + timedelta(seconds=2),
+        retained_at=NOW + timedelta(seconds=3),
+    )
+    assert item.verification.index_digest == f"sha256:{sha256(index_bytes).hexdigest()}"
+    assert item.verification.payload_digest == f"sha256:{sha256(payload_bytes).hexdigest()}"
+
+
+def test_from_retained_bytes_rejects_payload_length_mismatch() -> None:
+    with pytest.raises(ValueError, match="payload length"):
+        SourceSliceManifest.from_retained_bytes(
+            provider="noaa",
+            dataset="gfs",
+            product="0p25",
+            cycle=NOW,
+            forecast_hour=6,
+            upstream=UpstreamObject(
+                bucket="noaa-gfs-bdp-pds",
+                key="gfs.20260812/18/atmos/gfs.t18z.pgrb2.0p25.f006",
+                content_length=1_000,
+            ),
+            selection=ByteSelection(byte_start=100, byte_end=109),
+            index_bytes=b"index",
+            payload_bytes=b"short",
+            transport_verified=True,
+            discovered_at=NOW,
+            download_started_at=NOW + timedelta(seconds=1),
+            received_at=NOW + timedelta(seconds=2),
+            retained_at=NOW + timedelta(seconds=3),
+        )
