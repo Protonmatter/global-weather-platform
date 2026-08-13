@@ -79,6 +79,31 @@ def test_acquisition_egress_is_limited_to_declared_provider_names() -> None:
     assert all("rules" not in port_rule for port_rule in to_ports)
 
 
+def test_acquisition_dns_queries_are_observed_by_cilium_proxy() -> None:
+    items = documents("deploy/k8s/weather-acquisition.yaml")
+    policy = find(items, "CiliumNetworkPolicy", "weather-acquisition-provider-egress")
+    egress = policy["spec"]["egress"]
+    dns_rules = [
+        rule
+        for rule in egress
+        if any(
+            endpoint.get("matchLabels", {}).get("k8s:k8s-app") == "kube-dns"
+            for endpoint in rule.get("toEndpoints", [])
+        )
+    ]
+    assert len(dns_rules) == 1
+
+    dns_port_rule = dns_rules[0]["toPorts"][0]
+    assert "rules" in dns_port_rule
+    dns = dns_port_rule["rules"]["dns"]
+    assert {item["matchName"] for item in dns if "matchName" in item} == {
+        "noaa-gfs-bdp-pds.s3.amazonaws.com",
+        "noaa-gefs-pds.s3.amazonaws.com",
+        "api.openweathermap.org",
+    }
+    assert {"matchPattern": "*.cluster.local"} in dns
+
+
 def test_serving_namespace_denies_arbitrary_egress() -> None:
     items = documents("deploy/k8s/weather-serving-network-policy.yaml")
     deny = find(items, "NetworkPolicy", "weather-serving-default-deny")
