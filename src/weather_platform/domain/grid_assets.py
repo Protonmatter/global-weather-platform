@@ -62,12 +62,12 @@ class GridFieldAsset(BaseModel):
     source_revision: str = Field(min_length=1)
     decoder_version: str = Field(min_length=1)
     quality_disposition: QualityDisposition
-    quality_flags: list[str] = Field(default_factory=list)
+    quality_flags: tuple[str, ...] = ()
     provenance: Provenance
 
     @field_validator("quality_flags")
     @classmethod
-    def validate_quality_flags_unique(cls, value: list[str]) -> list[str]:
+    def validate_quality_flags_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if len(value) != len(set(value)):
             raise ValueError("quality flags must be unique")
         return value
