@@ -150,7 +150,9 @@ _ALLOWED_TRANSITIONS: dict[CycleState, frozenset[CycleState]] = {
             CycleState.EXPIRED,
         }
     ),
-    CycleState.COMPLETE: frozenset({CycleState.SUPERSEDED, CycleState.EXPIRED}),
+    CycleState.COMPLETE: frozenset(
+        {CycleState.QUARANTINED, CycleState.SUPERSEDED, CycleState.EXPIRED}
+    ),
     CycleState.QUARANTINED: frozenset({CycleState.EXPIRED}),
     CycleState.SUPERSEDED: frozenset({CycleState.EXPIRED}),
     CycleState.EXPIRED: frozenset(),
