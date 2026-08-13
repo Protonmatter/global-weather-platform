@@ -33,15 +33,27 @@ def _quantize(values: Sequence[float]) -> tuple[float, float, list[int]]:
     if minimum == maximum:
         return 1.0, minimum, [0] * len(values)
 
-    offset = (minimum + maximum) / 2.0
-    scale = (maximum - minimum) / (2.0 * _QUANTIZATION_LIMIT)
-    encoded = [
-        max(
-            -_QUANTIZATION_LIMIT,
-            min(_QUANTIZATION_LIMIT, round((value - offset) / scale)),
-        )
-        for value in values
-    ]
+    # Dividing the endpoints before combining them avoids overflowing on
+    # finite ranges such as [-1e308, 1e308] or [1e308, 1.7e308].
+    offset = minimum / 2.0 + maximum / 2.0
+    half_range = maximum / 2.0 - minimum / 2.0
+    scale = half_range / _QUANTIZATION_LIMIT
+    if not math.isfinite(offset) or not math.isfinite(scale) or scale <= 0:
+        raise VectorTileError("component range cannot be represented with finite tile metadata")
+
+    try:
+        encoded = [
+            max(
+                -_QUANTIZATION_LIMIT,
+                min(_QUANTIZATION_LIMIT, round((value - offset) / scale)),
+            )
+            for value in values
+        ]
+    except (OverflowError, ValueError) as exc:
+        raise VectorTileError("component range cannot be quantized safely") from exc
+
+    if any(not math.isfinite(value * scale + offset) for value in encoded):
+        raise VectorTileError("quantized components would decode to non-finite values")
     return scale, offset, encoded
 
 
@@ -121,8 +133,12 @@ def decode_vector_tile(payload: bytes) -> tuple[VectorTileHeader, list[float], l
     decoded_v: list[float] = []
     for index in range(sample_count):
         encoded_u, encoded_v = _SAMPLE.unpack_from(payload, _HEADER.size + index * _SAMPLE.size)
-        decoded_u.append(encoded_u * scale_u + offset_u)
-        decoded_v.append(encoded_v * scale_v + offset_v)
+        u_value = encoded_u * scale_u + offset_u
+        v_value = encoded_v * scale_v + offset_v
+        if not math.isfinite(u_value) or not math.isfinite(v_value):
+            raise VectorTileError("vector tile samples decode to non-finite values")
+        decoded_u.append(u_value)
+        decoded_v.append(v_value)
 
     header = VectorTileHeader(
         version=version,
