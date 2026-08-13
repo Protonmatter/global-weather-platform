@@ -2,8 +2,8 @@ import argparse
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 _PLACEHOLDER = "weather-platform-runtime@sha256:" + "0" * 64
 _IMAGE_REFERENCE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/:+-]+@sha256:[a-f0-9]{64}$")
