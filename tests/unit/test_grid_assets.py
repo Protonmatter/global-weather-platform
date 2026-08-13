@@ -1,3 +1,4 @@
+import math
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -17,13 +18,15 @@ DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 
 
-def provenance() -> Provenance:
-    return Provenance(
-        source_id="noaa-gfs",
-        source_record_digest=DIGEST_A,
-        ingested_at=INIT + timedelta(minutes=5),
-        decoder_version="grib-field-decoder/0.2.0+eccodes/2.38.3",
-    )
+def provenance(**overrides: object) -> Provenance:
+    payload: dict[str, object] = {
+        "source_id": "noaa-gfs",
+        "source_record_digest": DIGEST_A,
+        "ingested_at": INIT + timedelta(minutes=5),
+        "decoder_version": "grib-field-decoder/0.2.0+eccodes/2.38.3",
+    }
+    payload.update(overrides)
+    return Provenance.model_validate(payload)
 
 
 def asset(**overrides: object) -> GridFieldAsset:
@@ -94,3 +97,22 @@ def test_asset_rejects_unknown_storage_encoding_and_bad_digest() -> None:
         asset(storage_encoding="json-grid")
     with pytest.raises(ValidationError):
         asset(normalized_digest="md5:deadbeef")
+
+
+def test_asset_rejects_empty_ensemble_member_identifier() -> None:
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        asset(ensemble_member="")
+
+
+@pytest.mark.parametrize("level_value", [math.nan, math.inf, -math.inf])
+def test_asset_rejects_non_finite_level_value(level_value: float) -> None:
+    with pytest.raises(ValidationError, match="finite"):
+        asset(level_value=level_value)
+
+
+def test_asset_requires_decoder_version_to_match_provenance() -> None:
+    with pytest.raises(ValidationError, match="decoder_version"):
+        asset(
+            decoder_version="grib-field-decoder/0.3.0+eccodes/2.47.0",
+            provenance=provenance(),
+        )
