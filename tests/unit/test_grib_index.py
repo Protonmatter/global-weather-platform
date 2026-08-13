@@ -47,6 +47,14 @@ def test_parse_rejects_malformed_or_non_monotonic_indexes(text: str) -> None:
         parse_grib_index(text, object_size=500)
 
 
+def test_parse_rejects_message_number_gaps_before_deriving_ranges() -> None:
+    truncated = """1:0:d=x:UGRD:10 m above ground:
+3:240:d=x:TMP:2 m above ground:
+"""
+    with pytest.raises(GribIndexError, match="consecutive"):
+        parse_grib_index(truncated, object_size=500)
+
+
 def test_parse_rejects_offset_outside_object() -> None:
     with pytest.raises(GribIndexError, match="object size"):
         parse_grib_index("1:500:d=x:UGRD:10 m above ground:\n", object_size=500)
