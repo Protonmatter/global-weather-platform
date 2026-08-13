@@ -73,7 +73,9 @@ class GridFieldAsset(BaseModel):
 
     @field_validator("quality_flags")
     @classmethod
-    def validate_quality_flags_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_quality_flags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(flag == "" for flag in value):
+            raise ValueError("quality flags must not be empty")
         if len(value) != len(set(value)):
             raise ValueError("quality flags must be unique")
         return value
