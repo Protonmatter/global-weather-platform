@@ -89,6 +89,16 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
+  name: weather-ingestion-default-deny
+  namespace: weather-ingestion
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
   name: weather-acquisition-provider-egress
   namespace: weather-ingestion
 spec:
@@ -115,10 +125,6 @@ spec:
         - ports:
             - port: "443"
               protocol: TCP
-          rules:
-            http:
-              - method: GET
-              - method: HEAD
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: weather-data
