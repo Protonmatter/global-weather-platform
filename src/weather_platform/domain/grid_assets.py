@@ -49,7 +49,7 @@ class GridFieldAsset(BaseModel):
     source_variable: str = Field(min_length=1)
     level_type: str = Field(min_length=1)
     level_value: FiniteFloat | None = None
-    level_unit: str | None = None
+    level_unit: str | None = Field(default=None, min_length=1)
     unit: str = Field(min_length=1)
     grid_id: str = Field(min_length=1)
     crs: str = Field(min_length=1)
