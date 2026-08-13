@@ -19,7 +19,7 @@ from weather_platform.domain.cycle_lifecycle import (
 )
 from weather_platform.domain.grid_assets import GridFieldAsset, GridFieldProvenance
 from weather_platform.domain.model_catalog import GuidanceOrigin
-from weather_platform.domain.models import Provenance, QualityDisposition
+from weather_platform.domain.models import QualityDisposition
 from weather_platform.grids.coordinates import wrapped_longitude_distance
 from weather_platform.grids.wind import meteorological_direction_to_uv
 
@@ -75,7 +75,7 @@ def test_forecast_hour_ambiguity_is_not_resolved_by_first_match() -> None:
 @pytest.mark.regression
 @pytest.mark.scientific
 def test_inconsistent_valid_time_cannot_enter_the_grid_catalog() -> None:
-    provenance = Provenance(
+    provenance = GridFieldProvenance(
         source_id="noaa-gfs",
         source_record_digest=DIGEST_A,
         ingested_at=INIT + timedelta(minutes=1),
