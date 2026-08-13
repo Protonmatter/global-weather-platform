@@ -34,7 +34,7 @@ class StorageEncoding(StrEnum):
 class GridFieldAsset(BaseModel):
     """Metadata for one model field, valid time, grid, level, and member."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["1.0.0"] = "1.0.0"
     asset_id: UUID
