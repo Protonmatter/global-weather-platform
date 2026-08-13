@@ -69,6 +69,7 @@ verifications:
     status: implemented
     evidence:
       - tests/unit/test_grid_assets.py
+      - tests/unit/test_eccodes_backend.py
       - tests/contract/test_weather_schemas.py
       - tests/integration/test_weather_vertical_slice.py
   TEST-SCHEMA-0002:
