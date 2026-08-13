@@ -117,6 +117,12 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          rules:
+            dns:
+              - matchName: noaa-gfs-bdp-pds.s3.amazonaws.com
+              - matchName: noaa-gefs-pds.s3.amazonaws.com
+              - matchName: api.openweathermap.org
+              - matchPattern: "*.cluster.local"
     - toFQDNs:
         - matchName: noaa-gfs-bdp-pds.s3.amazonaws.com
         - matchName: noaa-gefs-pds.s3.amazonaws.com
