@@ -98,6 +98,14 @@ def test_accepted_asset_cannot_carry_unresolved_flags() -> None:
         asset(quality_flags=["range_suspect"])
 
 
+def test_asset_rejects_empty_quality_flag_identifier() -> None:
+    with pytest.raises(ValidationError, match="quality flags must not be empty"):
+        asset(
+            quality_disposition=QualityDisposition.ACCEPT_WITH_FLAGS,
+            quality_flags=[""],
+        )
+
+
 def test_asset_rejects_unknown_storage_encoding_and_bad_digest() -> None:
     with pytest.raises(ValidationError):
         asset(storage_encoding="json-grid")
