@@ -8,6 +8,7 @@ mkdir -p "${output_dir}"
 compile_common=(
   --resolver=backtracking
   --generate-hashes
+  --allow-unsafe
   --strip-extras
   --no-header
   --no-emit-index-url
