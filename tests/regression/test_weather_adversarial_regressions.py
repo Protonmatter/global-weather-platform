@@ -11,7 +11,12 @@ from weather_platform.acquisition.noaa.grib_index import (
     parse_grib_index,
     select_grib_messages,
 )
-from weather_platform.domain.cycle_lifecycle import CycleState, evaluate_cycle
+from weather_platform.domain.cycle_lifecycle import (
+    CycleFieldArrival,
+    CycleProductScope,
+    CycleState,
+    evaluate_cycle,
+)
 from weather_platform.domain.grid_assets import GridFieldAsset
 from weather_platform.domain.model_catalog import GuidanceOrigin
 from weather_platform.domain.models import Provenance, QualityDisposition
@@ -21,6 +26,7 @@ from weather_platform.grids.wind import meteorological_direction_to_uv
 INIT = datetime(2026, 8, 12, 18, 0, tzinfo=UTC)
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
+SCOPE = CycleProductScope(grid="gfs-0p25-global", lead_hours=6, member=None)
 
 
 @pytest.mark.regression
@@ -40,7 +46,12 @@ def test_north_wind_is_not_rendered_as_northward_motion() -> None:
 @pytest.mark.regression
 def test_duplicate_field_arrivals_do_not_publish_an_incomplete_cycle() -> None:
     publication = evaluate_cycle(
-        ["u_wind_10m", "u_wind_10m", "v_wind_10m"],
+        [
+            CycleFieldArrival(name="u_wind_10m", scope=SCOPE),
+            CycleFieldArrival(name="u_wind_10m", scope=SCOPE),
+            CycleFieldArrival(name="v_wind_10m", scope=SCOPE),
+        ],
+        scope=SCOPE,
         minimum_fields=GFS_MINIMUM_FIELDS,
         complete_fields=GFS_COMPLETE_FIELDS,
     )
