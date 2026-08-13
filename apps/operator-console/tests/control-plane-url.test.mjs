@@ -76,7 +76,7 @@ test("local development permits HTTP only for loopback", () => {
 });
 
 test("upstream response forwarding uses an explicit safe header set", () => {
-  const source = new Headers({{
+  const source = new Headers({
     "cache-control": "private, no-store",
     "content-type": "application/json",
     etag: '"abc"',
