@@ -16,12 +16,14 @@ compile_common=(
 
 "${python_bin}" -m piptools compile \
   "${compile_common[@]}" \
+  --extra=build \
   --extra=eccodes \
   --output-file "${output_dir}/production.lock" \
   pyproject.toml
 
 "${python_bin}" -m piptools compile \
   "${compile_common[@]}" \
+  --extra=build \
   --extra=dev \
   --extra=eccodes \
   --output-file "${output_dir}/ci.lock" \
