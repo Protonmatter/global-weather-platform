@@ -5,7 +5,10 @@ on:
     paths:
       - 'schemas/**'
       - 'src/weather_platform/domain/**'
+      - 'src/scripts/**'
       - 'deploy/k8s/weather-*.yaml'
+      - 'requirements/ci.lock'
+      - 'tests/unit/test_release_manifest.py'
       - 'tests/contract/test_weather_schemas.py'
       - 'tests/contract/test_weather_deployment_policy.py'
       - 'scripts/validate_schemas.py'
@@ -32,10 +35,20 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: requirements/ci.lock
       - name: Create isolated environment
         run: python -m venv .venv
-      - name: Install
-        run: .venv/bin/python -m pip install -e '.[dev]'
+      - name: Install hash-pinned dependencies
+        run: |
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/ci.lock
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --no-build-isolation \
+            --no-deps \
+            --editable .
       - name: Validate JSON Schemas
         run: .venv/bin/python scripts/validate_schemas.py
       - name: Run schema and deployment contracts
@@ -43,6 +56,7 @@ jobs:
           mkdir -p artifacts
           .venv/bin/python -m pytest -q --no-cov \
             --junitxml=artifacts/schema-contract-junit.xml \
+            tests/unit/test_release_manifest.py \
             tests/contract/test_weather_schemas.py \
             tests/contract/test_weather_deployment_policy.py
       - name: Upload schema evidence
