@@ -17,6 +17,6 @@ def normalize_longitude(longitude: float) -> float:
 def wrapped_longitude_distance(first: float, second: float) -> float:
     """Return the shortest angular distance between longitudes in degrees."""
 
-    _require_finite(first, "first longitude")
-    _require_finite(second, "second longitude")
-    return abs(normalize_longitude(first - second))
+    normalized_first = normalize_longitude(first)
+    normalized_second = normalize_longitude(second)
+    return abs(normalize_longitude(normalized_first - normalized_second))
