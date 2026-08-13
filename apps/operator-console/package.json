@@ -11,7 +11,7 @@
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
-    "test:unit": "node --experimental-strip-types --test tests/weather.test.mjs tests/control-plane-url.test.mjs tests/repository-contract.test.mjs",
+    "test:unit": "CONTROL_PLANE_ALLOWED_HOSTS=control.example node --experimental-strip-types --test tests/weather.test.mjs tests/control-plane-url.test.mjs tests/repository-contract.test.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "bash scripts/sites-env.sh -- tsc --noEmit",
