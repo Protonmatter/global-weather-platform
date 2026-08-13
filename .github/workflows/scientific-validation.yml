@@ -9,6 +9,7 @@ on:
       - 'src/weather_platform/ingestion/eccodes_backend.py'
       - 'src/weather_platform/scientific/**'
       - 'src/weather_platform/serving/vector_tiles.py'
+      - 'requirements/ci.lock'
       - 'tests/unit/test_probability.py'
       - 'tests/unit/test_verification.py'
       - 'tests/unit/test_grid_assets.py'
@@ -42,10 +43,13 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: requirements/ci.lock
       - name: Create isolated environment
         run: python -m venv .venv
-      - name: Install with ecCodes
-        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+      - name: Install reproducible dependencies
+        run: |
+          .venv/bin/python -m pip install --require-hashes -r requirements/ci.lock
+          .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
       - name: Run physical and temporal invariants
         run: |
           mkdir -p artifacts
