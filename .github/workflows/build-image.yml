@@ -16,19 +16,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Require internal registry configuration
+      - name: Require internal release configuration
         run: |
           test -n "${{ vars.INTERNAL_REGISTRY }}"
           test -n "${{ vars.PYTHON_BASE_IMAGE }}"
+          test -n "${{ vars.PYPI_MIRROR_URL }}"
+          test -n "${INTERNAL_RELEASE_ATTEST_COMMAND:-}"
+          test -f requirements/production.lock
+          test -f requirements/ci.lock
       - name: Build wheelhouse from the internal mirror
         env:
           PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
           IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
           BASE_IMAGE: ${{ vars.PYTHON_BASE_IMAGE }}
         run: ./scripts/build_image.sh
-      - name: Run internal artifact policy and signing
+      - name: Push, scan, sign, and attest internally
         env:
           IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
+          RELEASE_IMAGE_REF_FILE: release/image-ref.txt
         run: |
-          test -n "${INTERNAL_RELEASE_ATTEST_COMMAND:-}"
+          mkdir -p release
           bash -lc "$INTERNAL_RELEASE_ATTEST_COMMAND"
+          test -s "$RELEASE_IMAGE_REF_FILE"
+      - name: Render immutable release evidence
+        run: |
+          PYTHONPATH=src python -m scripts.render_release_manifest \
+            --source deploy/k8s/weather-acquisition.yaml \
+            --output release/weather-acquisition.yaml \
+            --image-reference-file release/image-ref.txt \
+            --metadata release/release-metadata.json \
+            --git-sha "${GITHUB_SHA}" \
+            --production-lock requirements/production.lock \
+            --ci-lock requirements/ci.lock
+          ! grep -q 'sha256:0000000000000000000000000000000000000000000000000000000000000000' \
+            release/weather-acquisition.yaml
+      - name: Upload release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: weather-release-${{ github.sha }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 90
