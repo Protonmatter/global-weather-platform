@@ -347,7 +347,7 @@
           "release_gate": "operational",
           "statement": "A newer cycle MUST NOT replace the currently served usable cycle until its configured minimum required-field manifest is satisfied.",
           "verification": [
-            "TEST-CYCLE-0001"
+            "TEST-CYCLE-PUBLISH-0002"
           ]
         },
         {
@@ -366,7 +366,7 @@
           "release_gate": "ux",
           "statement": "The catalog SHOULD expose distinct latest-published, latest-usable, and latest-complete aliases, and user-facing defaults MUST resolve latest-usable.",
           "verification": [
-            "TEST-CYCLE-0001"
+            "TEST-CYCLE-ALIAS-0003"
           ]
         }
       ],
@@ -375,7 +375,7 @@
         "RFC-3339",
         "WMO-GRIB2"
       ],
-      "status": "implemented"
+      "status": "review"
     },
     {
       "path": "specs/program/SPEC-000-program-charter.md",
@@ -529,6 +529,14 @@
       ],
       "status": "implemented"
     },
+    "TEST-CYCLE-ALIAS-0003": {
+      "notes": "latest-published, latest-usable, and latest-complete catalog aliases are not implemented.",
+      "status": "planned"
+    },
+    "TEST-CYCLE-PUBLISH-0002": {
+      "notes": "Persistent atomic replacement of the currently served usable cycle awaits the production model-asset catalog and serving alias implementation.",
+      "status": "planned"
+    },
     "TEST-DEPLOY-0001": {
       "evidence": [
         "tests/contract/test_weather_deployment_policy.py"
@@ -579,10 +587,8 @@
       "status": "implemented"
     },
     "TEST-SEC-0001": {
-      "evidence": [
-        "tests/contract/test_weather_deployment_policy.py"
-      ],
-      "status": "implemented"
+      "notes": "Weather-specific acquisition and serving policies are tested, but repository-wide production workload enumeration and deny-by-default egress proof are not yet implemented.",
+      "status": "planned"
     },
     "TEST-SECRET-0001": {
       "notes": "Automated secret redaction tests will be implemented with the live provider client.",
