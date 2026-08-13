@@ -17,7 +17,7 @@ from weather_platform.domain.cycle_lifecycle import (
     CycleState,
     evaluate_cycle,
 )
-from weather_platform.domain.grid_assets import GridFieldAsset
+from weather_platform.domain.grid_assets import GridFieldAsset, GridFieldProvenance
 from weather_platform.domain.model_catalog import GuidanceOrigin
 from weather_platform.domain.models import Provenance, QualityDisposition
 from weather_platform.grids.coordinates import wrapped_longitude_distance
