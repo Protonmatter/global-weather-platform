@@ -53,6 +53,18 @@ def test_non_finite_components_are_rejected() -> None:
             encode_vector_tile([value], [0.0], width=1, height=1)
 
 
+def test_large_finite_ranges_encode_without_overflow() -> None:
+    expected_u = [-1.0e308, 1.0e308]
+    expected_v = [1.0e308, 1.7e308]
+    payload = encode_vector_tile(expected_u, expected_v, width=2, height=1)
+    header, u, v = decode_vector_tile(payload)
+
+    assert all(math.isfinite(value) for value in (header.scale_u, header.offset_u))
+    assert all(math.isfinite(value) for value in (header.scale_v, header.offset_v))
+    assert u == pytest.approx(expected_u, abs=header.scale_u / 2)
+    assert v == pytest.approx(expected_v, abs=header.scale_v / 2)
+
+
 def test_decoder_rejects_wrong_magic_version_or_truncation() -> None:
     payload = bytearray(encode_vector_tile([1.0], [2.0], width=1, height=1))
 
