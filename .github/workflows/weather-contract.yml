@@ -6,6 +6,7 @@ on:
       - 'src/weather_platform/acquisition/**'
       - 'src/weather_platform/domain/**'
       - 'src/weather_platform/grids/**'
+      - 'src/weather_platform/ingestion/eccodes_backend.py'
       - 'src/weather_platform/serving/**'
       - 'schemas/grids/**'
       - 'schemas/manifests/**'
@@ -14,6 +15,7 @@ on:
       - 'tests/unit/test_grid_assets.py'
       - 'tests/unit/test_grib_index.py'
       - 'tests/unit/test_gfs_manifest.py'
+      - 'tests/unit/test_eccodes_backend.py'
       - 'tests/unit/test_cycle_lifecycle.py'
       - 'tests/unit/test_coordinates.py'
       - 'tests/unit/test_wind.py'
@@ -59,6 +61,7 @@ jobs:
             tests/unit/test_grid_assets.py \
             tests/unit/test_grib_index.py \
             tests/unit/test_gfs_manifest.py \
+            tests/unit/test_eccodes_backend.py \
             tests/unit/test_cycle_lifecycle.py \
             tests/unit/test_coordinates.py \
             tests/unit/test_wind.py \
