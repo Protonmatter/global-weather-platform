@@ -149,6 +149,15 @@ def test_model_and_schema_reject_empty_level_unit() -> None:
     assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
 
 
+def test_model_and_schema_reject_empty_quality_flag_identifier() -> None:
+    grid = grid_record()
+    grid["quality_disposition"] = "accept_with_flags"
+    grid["quality_flags"] = [""]
+    with pytest.raises(ValidationError):
+        GridFieldAsset.model_validate(grid)
+    assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
+
+
 def test_schemas_reject_structurally_invalid_records() -> None:
     source = source_record()
     source["selection"] = {"byte_start": -1, "byte_end": 100}
