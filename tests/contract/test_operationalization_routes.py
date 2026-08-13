@@ -94,13 +94,21 @@ def test_initial_audit_failure_prevents_source_retention(tmp_path, monkeypatch) 
     assert not main.raw_store.exists(digest)
 
 
-def test_raw_evidence_read_requires_service_identity_in_production(tmp_path, monkeypatch) -> None:
+def test_raw_evidence_read_requires_service_identity_in_production(
+    tmp_path,
+    monkeypatch,
+) -> None:
     client, credential = isolated_client(tmp_path, monkeypatch, production=True)
     assert credential is not None
     payload = b"protected source record"
     digest = sha256_digest(payload)
     headers = service_headers(credential)
-    assert client.put(f"/v1/source-records/{digest}", content=payload, headers=headers).status_code == 201
+    retention = client.put(
+        f"/v1/source-records/{digest}",
+        content=payload,
+        headers=headers,
+    )
+    assert retention.status_code == 201
 
     assert client.get(f"/v1/source-records/{digest}").status_code == 401
     assert (
