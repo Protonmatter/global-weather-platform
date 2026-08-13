@@ -141,6 +141,14 @@ def test_model_and_schema_reject_empty_ensemble_member() -> None:
     assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
 
 
+def test_model_and_schema_reject_empty_level_unit() -> None:
+    grid = grid_record()
+    grid["level_unit"] = ""
+    with pytest.raises(ValidationError):
+        GridFieldAsset.model_validate(grid)
+    assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
+
+
 def test_schemas_reject_structurally_invalid_records() -> None:
     source = source_record()
     source["selection"] = {"byte_start": -1, "byte_end": 100}
