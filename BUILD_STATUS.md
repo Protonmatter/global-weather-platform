@@ -5,10 +5,12 @@
 ### Specification, governance, and release evidence
 
 - RFC-0002 operational weather-data architecture, approved design record, and task-level implementation plan
-- Executable acquisition-boundary, source-slice, gridded-guidance, cycle-publication, and scientific-validation specifications
+- Executable acquisition-boundary, source-slice, gridded-guidance, cycle-readiness, and scientific-validation specifications
 - Requirement and verification registry with generated traceability checked in CI
 - RFC 2119/RFC 8174 normative language and RFC 9457 API-problem conventions retained
 - GitHub Actions pinned to current commit SHAs using Node-24-capable official action releases
+- Cycle serving replacement and latest-cycle aliases explicitly retained as planned requirements rather than reported as implemented
+- Repository-wide deny-by-default egress proof retained as planned; weather-specific acquisition and serving policy evidence remains separately implemented
 
 ### Existing platform foundation
 
@@ -32,22 +34,27 @@
 
 ### Operational weather Phase 1
 
-- `SourceSliceManifest` domain contract and JSON Schema for bounded, inclusive provider byte ranges
+- Frozen `SourceSliceManifest` and nested evidence contracts for bounded, inclusive provider byte ranges
+- `SourceSliceManifest.from_retained_bytes` calculates SHA-256 identities from retained index and payload bytes and validates payload length against the selected range
 - Platform-calculated SHA-256 identities kept distinct from provider ETags
 - Monotonic discovery, download, receipt, and retention timestamp validation
 - `GridFieldAsset` domain contract and JSON Schema for one model variable, level, valid time, grid, and ensemble member
 - Enforced invariant: `valid_at == initialized_at + lead_seconds`
-- Enforced source-digest/provenance agreement and accepted-asset quality rules
+- Empty ensemble-member identifiers and non-finite vertical levels rejected at typed admission
+- Enforced source-digest/provenance and decoder-version/provenance agreement
+- Accepted assets prohibited from carrying unresolved quality flags
 - Strict NOAA-style GRIB index parsing with monotonic offsets, bounded final-message range derivation, and malformed-input rejection
 - Deterministic required-field selection that fails on missing or ambiguous matches
 - GFS minimum-usable field manifest for 10 m U/V wind, 2 m temperature, 2 m relative humidity, and mean sea-level pressure
 - Extended complete manifest including gust, cloud cover, and precipitation
 - Canonical ecCodes-to-platform GFS field identity mapping
 - Explicit cycle states: discovered, index available, downloading, missing, partial, minimum usable, complete, quarantined, superseded, and expired
-- Manifest-driven cycle publication eligibility with duplicate-arrival deduplication and illegal-transition rejection
+- Required-field readiness evaluated per coherent grid, forecast lead, and ensemble-member scope
+- Duplicate arrivals within the exact product scope do not inflate completeness; mixed scopes are rejected
 - GeoJSON-range longitude normalization and antimeridian-safe angular distance
 - Meteorological direction-to-U/V conversion validated against all cardinal directions
 - Versioned deterministic binary U/V tile format with signed 16-bit interleaving, explicit scale/offset metadata, strict length validation, and bounded reconstruction error
+- Overflow-safe vector quantization for very large finite component ranges; non-representable metadata fails closed with `VectorTileError`
 - Fail-closed `weather-platform-acquisition` command; live transport is not enabled
 - Hardened acquisition deployment contract with non-root execution, dropped capabilities, read-only root filesystem, resource bounds, and provider-scoped Cilium egress
 - Separate serving namespace with default-deny ingress and egress
@@ -60,7 +67,7 @@
 - Dedicated JSON Schema and Kubernetes deployment-contract gate
 - Dedicated scientific-validation gate
 - Fixture-driven vertical-slice integration gate
-- Immutable adversarial regression suite for antimeridian behavior, wind direction, duplicate arrivals, forecast-hour ambiguity, and model valid-time integrity
+- Immutable adversarial regression suite for antimeridian behavior, wind direction, duplicate arrivals, mixed product scopes, forecast-hour ambiguity, model valid-time integrity, evidence immutability, and extreme finite vector ranges
 - JUnit evidence artifacts for focused schema, scientific, contract, and integration workflows
 - Local Make targets matching the CI test taxonomy
 
@@ -75,12 +82,12 @@
 
 ## Verification
 
-Verified in GitHub Actions on the RFC-0002 Phase-1 pull request:
+Verified in GitHub Actions on the RFC-0002 Phase-1 pull request after review remediation:
 
-- Specification validation: **40 requirements and 23 verification references**
+- Specification validation: **40 requirements and 25 verification references**
 - JSON Schema meta-validation: **7 schemas**
-- Python tests: **233 passed**
-- Python branch coverage: **93.28%** against a required minimum of 90%
+- Python tests: **245 passed**
+- Python branch coverage: **92.95%** against a required minimum of 90%
 - Ruff lint: passed
 - Ruff format: **106 files already formatted**
 - Mypy strict mode: **41 source files, no issues**
@@ -99,6 +106,7 @@ Verified in GitHub Actions on the RFC-0002 Phase-1 pull request:
 
 - Acquisition transport integrity: issuer-allowlist verification, fail-closed handling of unpinned issuers, and upstream-checksum verification are implemented and tested in the existing transport-trust core; live NOAA HTTP/S3/SQS wiring is not enabled
 - GRIB2/BUFR decoder service: real ecCodes GRIB2 inventory decoding is implemented and tested; numeric global-array extraction, canonical array persistence, and full BUFR-to-observation decoding remain follow-on work
+- Model-cycle lifecycle: scope-aware readiness classification and state-transition validation are implemented; persistent serving replacement and latest-published/latest-usable/latest-complete aliases remain planned
 - OGC API EDR: position queries exist; gridded area and cube queries await production grid persistence
 - Forecast-product UI: the operator console covers authenticated control-plane workflows; the separate forecast-map experience remains specified but not implemented
 
@@ -108,6 +116,7 @@ Verified in GitHub Actions on the RFC-0002 Phase-1 pull request:
 - NOAA publication-event or SQS integration
 - Production object storage, PostgreSQL metadata catalog, or Zarr array store for gridded guidance
 - Atomic live cycle publication backed by persistent model assets
+- Latest-published, latest-usable, and latest-complete serving aliases
 - Complete numeric GRIB field-array extraction and normalization
 - OGC API EDR area and cube queries over persisted grids
 - Scalar map tiles, binary vector tile HTTP endpoints, map manifests, CDN deployment, or cache invalidation
@@ -116,10 +125,11 @@ Verified in GitHub Actions on the RFC-0002 Phase-1 pull request:
 - `apps/forecast-map`, WebGL wind animation, responsive forecast experience, browser accessibility suite, and visual regression suite
 - OpenWeather One Call adapter, quota control, point-condition enrichment, or alert aggregation
 - Provider credential-redaction tests tied to a live client
+- Repository-wide proof that every production workload is covered by deny-by-default egress
 - Production authentication and authorization beyond the implemented control-plane service credential and verified operator identity
 - Production load qualification, resilience/chaos exercises, staging replay, canary rollout, disaster recovery, or live data rollback exercises
 - Numerical weather-model execution
 
 ## Activation boundary
 
-The acquisition Deployment MUST remain at zero replicas until the live-transport activation checklist in `docs/WEATHER_DATA_DEPLOYMENT.md` is satisfied. Phase 1 proves the contracts, scientific invariants, deployment boundary, and deterministic fixture path; it does not claim an operational live weather feed.
+The acquisition Deployment MUST remain at zero replicas until the live-transport activation checklist in `docs/WEATHER_DATA_DEPLOYMENT.md` is satisfied. Phase 1 proves the contracts, scientific invariants, weather-specific deployment boundary, and deterministic fixture path; it does not claim an operational live weather feed.
