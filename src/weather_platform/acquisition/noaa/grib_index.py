@@ -105,11 +105,16 @@ def parse_grib_index(text: str, *, object_size: int) -> list[GribIndexEntry]:
         raise GribIndexError("GRIB index must contain at least one entry")
 
     parsed = [_parse_line(line, index) for index, line in enumerate(source_lines, start=1)]
-    previous_message = 0
+    previous_message: int | None = None
     previous_offset = -1
     for line_number, item in enumerate(parsed, start=1):
-        if item.message_number <= previous_message:
-            raise GribIndexError(f"line {line_number} message numbers must be strictly increasing")
+        if previous_message is not None:
+            if item.message_number <= previous_message:
+                raise GribIndexError(
+                    f"line {line_number} message numbers must be strictly increasing"
+                )
+            if item.message_number != previous_message + 1:
+                raise GribIndexError(f"line {line_number} message numbers must be consecutive")
         if item.offset <= previous_offset:
             raise GribIndexError(f"line {line_number} offsets must be strictly increasing")
         if item.offset >= object_size:
