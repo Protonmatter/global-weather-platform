@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+build = [
+  "setuptools>=75,<85",
+  "wheel>=0.45,<1",
+]
 eccodes = [
   "eccodes>=2.38,<3",
 ]
