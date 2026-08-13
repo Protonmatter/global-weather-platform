@@ -15,9 +15,9 @@ from weather_platform.domain.cycle_lifecycle import (
     CycleState,
     evaluate_cycle,
 )
-from weather_platform.domain.grid_assets import GridFieldAsset
+from weather_platform.domain.grid_assets import GridFieldAsset, GridFieldProvenance
 from weather_platform.domain.model_catalog import GuidanceOrigin
-from weather_platform.domain.models import Provenance, QualityDisposition
+from weather_platform.domain.models import QualityDisposition
 from weather_platform.domain.source_manifests import (
     ByteSelection,
     SourceSliceManifest,
@@ -82,7 +82,7 @@ def test_index_to_manifest_cycle_asset_and_vector_tile_path() -> None:
     assert publication.state is CycleState.COMPLETE
     assert publication.usable
 
-    provenance = Provenance(
+    provenance = GridFieldProvenance(
         source_id="noaa-gfs",
         source_record_digest=source.verification.payload_digest,
         ingested_at=INIT + timedelta(seconds=4),
