@@ -1,0 +1,54 @@
+name: fix-wis2-test-temp
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fix-wis2-test-temp.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-wis2-test-temp-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply asserted test-only patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/unit/test_wis2.py')
+          text = path.read_text(encoding='utf-8')
+          old_import = 'import pytest\n\nfrom weather_platform.api import main\n'
+          new_import = 'import pytest\nfrom starlette.requests import Request\n\nfrom weather_platform.api import main\n'
+          old_call = '    main.create_observation(observation)\n'
+          new_call = (
+              '    request = Request({"type": "http", "method": "POST", "headers": []})\n'
+              '    main.create_observation(request, observation)\n'
+          )
+          if text.count(old_import) != 1:
+              raise SystemExit('expected exactly one pytest/main import boundary')
+          if text.count(old_call) != 1:
+              raise SystemExit('expected exactly one obsolete create_observation call')
+          text = text.replace(old_import, new_import).replace(old_call, new_call)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit test correction
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/unit/test_wis2.py
+          git diff --cached --exit-code && exit 1 || true
+          git commit -m 'test: pass request to authenticated observation route'
+          git push origin HEAD:${{ github.head_ref }}
