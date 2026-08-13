@@ -127,6 +127,19 @@ def test_model_enforces_cross_field_invariants_not_expressible_in_portable_json_
     with pytest.raises(ValidationError):
         GridFieldAsset.model_validate(grid)
 
+    grid = grid_record()
+    grid["decoder_version"] = "grib-field-decoder/0.3.0+eccodes/2.47.0"
+    with pytest.raises(ValidationError, match="decoder_version"):
+        GridFieldAsset.model_validate(grid)
+
+
+def test_model_and_schema_reject_empty_ensemble_member() -> None:
+    grid = grid_record()
+    grid["ensemble_member"] = ""
+    with pytest.raises(ValidationError):
+        GridFieldAsset.model_validate(grid)
+    assert list(validator("schemas/grids/grid-field-asset.schema.json").iter_errors(grid))
+
 
 def test_schemas_reject_structurally_invalid_records() -> None:
     source = source_record()
