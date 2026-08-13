@@ -76,6 +76,12 @@ def test_asset_rejects_inconsistent_valid_time() -> None:
         asset(valid_at=INIT + timedelta(hours=7))
 
 
+def test_asset_converts_valid_time_overflow_to_validation_failure() -> None:
+    maximum = datetime.max.replace(tzinfo=UTC)
+    with pytest.raises(ValidationError, match="supported datetime range"):
+        asset(initialized_at=maximum, valid_at=maximum, lead_seconds=1)
+
+
 def test_asset_rejects_non_positive_grid_dimensions() -> None:
     with pytest.raises(ValidationError):
         asset(nx=0)
