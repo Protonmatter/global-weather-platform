@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:weather:source-slice:1",
+  "title": "Immutable weather source slice manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "provider",
+    "dataset",
+    "product",
+    "cycle",
+    "forecast_hour",
+    "upstream",
+    "selection",
+    "verification",
+    "discovered_at",
+    "download_started_at",
+    "received_at",
+    "retained_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "provider": {"type": "string", "minLength": 1},
+    "dataset": {"type": "string", "minLength": 1},
+    "product": {"type": "string", "minLength": 1},
+    "cycle": {"type": "string", "format": "date-time"},
+    "forecast_hour": {"type": "integer", "minimum": 0},
+    "upstream": {
+      "type": "object",
+      "required": ["bucket", "key", "content_length"],
+      "properties": {
+        "bucket": {"type": "string", "minLength": 1},
+        "key": {"type": "string", "minLength": 1},
+        "etag": {"type": ["string", "null"]},
+        "last_modified": {"type": ["string", "null"], "format": "date-time"},
+        "content_length": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "required": ["byte_start", "byte_end"],
+      "properties": {
+        "byte_start": {"type": "integer", "minimum": 0},
+        "byte_end": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "required": ["index_digest", "payload_digest", "transport_verified"],
+      "properties": {
+        "index_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "transport_verified": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "discovered_at": {"type": "string", "format": "date-time"},
+    "download_started_at": {"type": "string", "format": "date-time"},
+    "received_at": {"type": "string", "format": "date-time"},
+    "retained_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

@@ -40,6 +40,45 @@
       "status": "accepted"
     },
     {
+      "path": "specs/architecture/SPEC-110-weather-acquisition-boundary.md",
+      "requirements": [
+        {
+          "id": "SEC-EGRESS-0001",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Only approved acquisition workloads MAY establish external provider connections; serving, forecast, calibration, and visualization workloads MUST NOT have arbitrary Internet egress.",
+          "verification": [
+            "TEST-DEPLOY-0001"
+          ]
+        },
+        {
+          "id": "SEC-WORKLOAD-0002",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Weather acquisition workloads MUST run as non-root, MUST drop Linux capabilities, MUST prohibit privilege escalation, and SHOULD use a read-only root filesystem.",
+          "verification": [
+            "TEST-DEPLOY-0001"
+          ]
+        },
+        {
+          "id": "SEC-SECRET-0003",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Provider credentials MUST NOT be delivered to browser clients or recorded in source data, provenance, logs, traces, metrics labels, or release evidence.",
+          "verification": [
+            "TEST-SECRET-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-110",
+      "standards": [
+        "RFC-8446",
+        "NIST-SSDF-1.1",
+        "KUBERNETES-NETWORKPOLICY"
+      ],
+      "status": "review"
+    },
+    {
       "path": "specs/data/SPEC-200-observation-platform.md",
       "requirements": [
         {
@@ -118,6 +157,112 @@
       "status": "implemented"
     },
     {
+      "path": "specs/data/SPEC-220-source-slices.md",
+      "requirements": [
+        {
+          "id": "ACQ-SRC-0001",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Every selectively retrieved provider byte range MUST produce an immutable source-slice manifest containing the upstream object identity, exact inclusive byte interval, index digest, payload digest, and acquisition timestamps.",
+          "verification": [
+            "TEST-SOURCE-0001"
+          ]
+        },
+        {
+          "id": "ACQ-HASH-0002",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "The platform MUST calculate a SHA-256 digest for retained source bytes and MUST NOT treat a provider ETag as a cryptographic content identity.",
+          "verification": [
+            "TEST-SOURCE-0001"
+          ]
+        },
+        {
+          "id": "ACQ-RANGE-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "A source byte interval MUST be non-negative, ordered, and bounded by the declared upstream object length before it is admitted.",
+          "verification": [
+            "TEST-SOURCE-0001"
+          ]
+        },
+        {
+          "id": "ACQ-TIME-0004",
+          "priority": "high",
+          "release_gate": "engineering",
+          "statement": "Discovery, download, receipt, and retention timestamps MUST be timezone-aware and MUST preserve their monotonic acquisition order.",
+          "verification": [
+            "TEST-SOURCE-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-220",
+      "standards": [
+        "RFC-3339",
+        "SHA-256",
+        "WMO-GRIB2"
+      ],
+      "status": "implemented"
+    },
+    {
+      "path": "specs/data/SPEC-230-gridded-guidance.md",
+      "requirements": [
+        {
+          "id": "DATA-GRID-0001",
+          "priority": "critical",
+          "release_gate": "architecture",
+          "statement": "Gridded model guidance MUST be represented as a canonical grid asset and MUST NOT be expanded into one point observation per grid cell.",
+          "verification": [
+            "TEST-GRID-0001"
+          ]
+        },
+        {
+          "id": "DATA-GRID-0002",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Every grid asset MUST identify model initialization time, valid time, and lead, and valid time MUST equal initialization time plus lead.",
+          "verification": [
+            "TEST-GRID-0001"
+          ]
+        },
+        {
+          "id": "DATA-LINEAGE-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Every grid asset MUST retain immutable source and normalized content digests, source revision, decoder version, unit, grid identity, and provenance.",
+          "verification": [
+            "TEST-GRID-0001",
+            "TEST-SCHEMA-0002"
+          ]
+        },
+        {
+          "id": "DATA-ENSEMBLE-0004",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Ensemble guidance MUST preserve the provider member identifier and MUST NOT collapse distinct members into an unlabelled deterministic field.",
+          "verification": [
+            "TEST-GRID-0001"
+          ]
+        },
+        {
+          "id": "DATA-QUALITY-0005",
+          "priority": "high",
+          "release_gate": "scientific",
+          "statement": "An accepted grid asset MUST NOT carry unresolved quality flags; suspect assets SHOULD be admitted only with an explicit non-accept disposition.",
+          "verification": [
+            "TEST-GRID-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-230",
+      "standards": [
+        "RFC-3339",
+        "CF-CONVENTIONS",
+        "WMO-GRIB2"
+      ],
+      "status": "implemented"
+    },
+    {
       "path": "specs/models/SPEC-400-model-guidance-catalog.md",
       "requirements": [
         {
@@ -183,6 +328,54 @@
         "ISO-IEC-5259"
       ],
       "status": "accepted"
+    },
+    {
+      "path": "specs/models/SPEC-420-cycle-publication.md",
+      "requirements": [
+        {
+          "id": "MODEL-CYCLE-0001",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Model-cycle publication state MUST be explicit and MUST distinguish missing, partial, minimum-usable, complete, quarantined, superseded, and expired states.",
+          "verification": [
+            "TEST-CYCLE-0001"
+          ]
+        },
+        {
+          "id": "MODEL-USABLE-0002",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "A newer cycle MUST NOT replace the currently served usable cycle until its configured minimum required-field manifest is satisfied.",
+          "verification": [
+            "TEST-CYCLE-PUBLISH-0002"
+          ]
+        },
+        {
+          "id": "MODEL-IDEMPOTENT-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "Duplicate provider notifications and field arrivals MUST NOT inflate completeness or create duplicate logical field identities.",
+          "verification": [
+            "TEST-CYCLE-0001",
+            "TEST-GRIB-0001"
+          ]
+        },
+        {
+          "id": "MODEL-ALIAS-0004",
+          "priority": "high",
+          "release_gate": "ux",
+          "statement": "The catalog SHOULD expose distinct latest-published, latest-usable, and latest-complete aliases, and user-facing defaults MUST resolve latest-usable.",
+          "verification": [
+            "TEST-CYCLE-ALIAS-0003"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-420",
+      "standards": [
+        "RFC-3339",
+        "WMO-GRIB2"
+      ],
+      "status": "review"
     },
     {
       "path": "specs/program/SPEC-000-program-charter.md",
@@ -251,6 +444,62 @@
         "NIST-AI-RMF-MEASURE"
       ],
       "status": "accepted"
+    },
+    {
+      "path": "specs/validation/SPEC-810-weather-scientific-validation.md",
+      "requirements": [
+        {
+          "id": "SCI-LON-0001",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Longitude normalization MUST use wrapped GeoJSON longitude semantics and MUST preserve antimeridian proximity.",
+          "verification": [
+            "TEST-WIND-0001"
+          ]
+        },
+        {
+          "id": "SCI-WIND-0002",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Meteorological wind direction conversion MUST produce physical U and V components whose cardinal signs correspond to motion away from the reported source direction.",
+          "verification": [
+            "TEST-WIND-0001"
+          ]
+        },
+        {
+          "id": "SCI-TILE-0003",
+          "priority": "critical",
+          "release_gate": "scientific",
+          "statement": "Vector tile encoding and decoding MUST be deterministic, MUST reject non-finite values and malformed lengths, and MUST bound component reconstruction error by the declared quantization scale.",
+          "verification": [
+            "TEST-TILE-0001"
+          ]
+        },
+        {
+          "id": "UX-WEATHER-0004",
+          "priority": "critical",
+          "release_gate": "ux",
+          "statement": "A weather client MUST distinguish observation, deterministic forecast, ensemble consensus, official warning, and experimental output and MUST expose initialization time, valid time, lead, source, and staleness.",
+          "verification": [
+            "TEST-UX-0001"
+          ]
+        },
+        {
+          "id": "UX-MOTION-0005",
+          "priority": "high",
+          "release_gate": "ux",
+          "statement": "A weather client MUST provide reduced-motion and non-WebGL fallbacks without removing the underlying forecast information.",
+          "verification": [
+            "TEST-UX-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-810",
+      "standards": [
+        "OGC-API-EDR-1.1",
+        "WCAG-2.2-AA"
+      ],
+      "status": "review"
     }
   ],
   "verifications": {
@@ -272,6 +521,45 @@
       ],
       "status": "implemented"
     },
+    "TEST-CYCLE-0001": {
+      "evidence": [
+        "tests/unit/test_cycle_lifecycle.py",
+        "tests/integration/test_weather_vertical_slice.py",
+        "tests/regression/test_weather_adversarial_regressions.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-CYCLE-ALIAS-0003": {
+      "notes": "latest-published, latest-usable, and latest-complete catalog aliases are not implemented.",
+      "status": "planned"
+    },
+    "TEST-CYCLE-PUBLISH-0002": {
+      "notes": "Persistent atomic replacement of the currently served usable cycle awaits the production model-asset catalog and serving alias implementation.",
+      "status": "planned"
+    },
+    "TEST-DEPLOY-0001": {
+      "evidence": [
+        "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-GRIB-0001": {
+      "evidence": [
+        "tests/unit/test_grib_index.py",
+        "tests/integration/test_weather_vertical_slice.py",
+        "tests/regression/test_weather_adversarial_regressions.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-GRID-0001": {
+      "evidence": [
+        "tests/unit/test_grid_assets.py",
+        "tests/unit/test_eccodes_backend.py",
+        "tests/contract/test_weather_schemas.py",
+        "tests/integration/test_weather_vertical_slice.py"
+      ],
+      "status": "implemented"
+    },
     "TEST-RES-0001": {
       "notes": "Source-loss staleness behavior is not implemented.",
       "status": "planned"
@@ -280,6 +568,12 @@
       "evidence": [
         "tests/contract/test_schema_conformance.py",
         "tests/unit/test_domain.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-SCHEMA-0002": {
+      "evidence": [
+        "tests/contract/test_weather_schemas.py"
       ],
       "status": "implemented"
     },
@@ -294,8 +588,27 @@
       "status": "implemented"
     },
     "TEST-SEC-0001": {
-      "notes": "The deny-by-default policy manifest exists but no automated check verifies it.",
+      "notes": "Weather-specific acquisition and serving policies are tested, but repository-wide production workload enumeration and deny-by-default egress proof are not yet implemented.",
       "status": "planned"
+    },
+    "TEST-SECRET-0001": {
+      "notes": "Automated secret redaction tests will be implemented with the live provider client.",
+      "status": "planned"
+    },
+    "TEST-SOURCE-0001": {
+      "evidence": [
+        "tests/unit/test_source_manifests.py",
+        "tests/contract/test_weather_schemas.py",
+        "tests/integration/test_weather_vertical_slice.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-TILE-0001": {
+      "evidence": [
+        "tests/unit/test_vector_tiles.py",
+        "tests/integration/test_weather_vertical_slice.py"
+      ],
+      "status": "implemented"
     },
     "TEST-TRACE-0001": {
       "notes": "Release-unit binding of software, model, configuration, and evidence is not implemented.",
@@ -324,6 +637,19 @@
     "TEST-UNIT-0004": {
       "evidence": [
         "tests/unit/test_config.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-UX-0001": {
+      "notes": "Browser, accessibility, reduced-motion, and visual-regression evidence awaits the forecast-map application slice.",
+      "status": "planned"
+    },
+    "TEST-WIND-0001": {
+      "evidence": [
+        "tests/unit/test_coordinates.py",
+        "tests/unit/test_wind.py",
+        "tests/integration/test_weather_vertical_slice.py",
+        "tests/regression/test_weather_adversarial_regressions.py"
       ],
       "status": "implemented"
     }

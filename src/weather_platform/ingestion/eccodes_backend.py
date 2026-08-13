@@ -1,9 +1,10 @@
 """Real ecCodes GRIB2 decode backend for the model guidance catalog (DATA-003).
 
 GRIB2 carries gridded model output, so a message maps to a catalogued
-``ModelCycleField`` (variable, level, grid, lead), not to a point observation.
-Decoding a cycle's GRIB2 messages therefore yields the cycle's real available
-field inventory, which drives MODEL-001 completeness from the actual bytes.
+``ModelCycleField`` (variable, level, grid, lead, member), not to a point
+observation. Decoding a cycle's GRIB2 messages therefore yields the cycle's
+real available field inventory, which drives MODEL-001 completeness from the
+actual bytes.
 
 ecCodes is an optional dependency (native library); import lazily so the
 package works without it. The decoder records the ecCodes version it ran with,
@@ -43,7 +44,15 @@ def eccodes_available() -> bool:
 def runtime_decoder_version() -> str:
     """Return the decoder id including the ecCodes version actually loaded."""
     eccodes = _import_eccodes()
-    return f"grib-field-decoder/0.1.0+eccodes/{eccodes.codes_get_api_version()}"
+    return f"grib-field-decoder/0.2.0+eccodes/{eccodes.codes_get_api_version()}"
+
+
+def _ensemble_member(eccodes: ModuleType, gid: Any) -> str | None:
+    """Return the provider ensemble member when the GRIB message defines one."""
+
+    if not bool(eccodes.codes_is_defined(gid, "perturbationNumber")):
+        return None
+    return str(eccodes.codes_get(gid, "perturbationNumber"))
 
 
 def _message_field(eccodes: ModuleType, gid: Any) -> ModelCycleField:
@@ -57,6 +66,7 @@ def _message_field(eccodes: ModuleType, gid: Any) -> ModelCycleField:
             f"{eccodes.codes_get(gid, 'Ni')}x{eccodes.codes_get(gid, 'Nj')}"
         ),
         lead_hours=int(eccodes.codes_get(gid, "endStep")),
+        member=_ensemble_member(eccodes, gid),
     )
 
 

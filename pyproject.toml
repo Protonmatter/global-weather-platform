@@ -33,14 +33,21 @@ dev = [
 
 [project.scripts]
 weather-platform = "weather_platform.api.main:run"
+weather-platform-acquisition = "weather_platform.acquisition.cli:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-markers --cov=weather_platform --cov-report=term-missing --cov-fail-under=85"
+addopts = "-ra --strict-markers --cov=weather_platform --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "contract: schema, API, wire-format, and deployment policy contracts",
+  "scientific: physical, geographic, temporal, and probabilistic invariants",
+  "integration: multi-component fixture-driven integration paths",
+  "regression: immutable reproductions of confirmed defects or adversarial failures",
+]
 
 [tool.ruff]
 target-version = "py312"

@@ -1,8 +1,11 @@
+from typing import ClassVar
+
 import pytest
 
 eccodes = pytest.importorskip("eccodes")
 
 from weather_platform.ingestion.eccodes_backend import (  # noqa: E402
+    _message_field,
     grib_field_inventory,
     runtime_decoder_version,
 )
@@ -17,6 +20,27 @@ def _grib2(short_name: str, level: int, step: int) -> bytes:
     message = eccodes.codes_get_message(gid)
     eccodes.codes_release(gid)
     return message
+
+
+class _FakeEnsembleEccodes:
+    values: ClassVar[dict[str, object]] = {
+        "level": 850,
+        "shortName": "t",
+        "typeOfLevel": "isobaricInhPa",
+        "gridType": "regular_ll",
+        "Ni": 1440,
+        "Nj": 721,
+        "endStep": 6,
+        "perturbationNumber": 17,
+    }
+
+    @classmethod
+    def codes_get(cls, _gid: object, key: str) -> object:
+        return cls.values[key]
+
+    @classmethod
+    def codes_is_defined(cls, _gid: object, key: str) -> bool:
+        return key in cls.values
 
 
 def test_runtime_decoder_version_reports_real_eccodes() -> None:
@@ -35,6 +59,11 @@ def test_grib_field_inventory_decodes_real_messages() -> None:
     assert by_variable["t"].lead_hours == 6
     assert by_variable["u"].lead_hours == 12
     assert by_variable["u"].grid.startswith("regular_ll:")
+
+
+def test_message_field_preserves_provider_ensemble_member() -> None:
+    field = _message_field(_FakeEnsembleEccodes, object())  # type: ignore[arg-type]
+    assert field.member == "17"
 
 
 def test_malformed_grib_is_rejected() -> None:

@@ -1,0 +1,58 @@
+name: weather-integration
+
+on:
+  pull_request:
+    paths:
+      - 'src/weather_platform/acquisition/**'
+      - 'src/weather_platform/domain/**'
+      - 'src/weather_platform/grids/**'
+      - 'src/weather_platform/serving/**'
+      - 'schemas/grids/**'
+      - 'schemas/manifests/**'
+      - 'deploy/k8s/weather-*.yaml'
+      - 'tests/functional/test_weather_acquisition_cli.py'
+      - 'tests/integration/test_weather_vertical_slice.py'
+      - 'tests/regression/test_weather_adversarial_regressions.py'
+      - '.github/workflows/weather-integration.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weather-integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Create isolated environment
+        run: python -m venv .venv
+      - name: Install with ecCodes
+        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+      - name: Run fixture-driven functional and integration paths
+        run: |
+          mkdir -p artifacts
+          .venv/bin/python -m pytest -q --no-cov \
+            --junitxml=artifacts/weather-integration-junit.xml \
+            tests/functional/test_weather_acquisition_cli.py \
+            tests/integration/test_weather_vertical_slice.py \
+            tests/regression/test_weather_adversarial_regressions.py
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: weather-integration-${{ github.sha }}
+          path: artifacts/weather-integration-junit.xml
+          if-no-files-found: error
+          retention-days: 30

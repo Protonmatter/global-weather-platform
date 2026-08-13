@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from starlette.requests import Request
 
 from weather_platform.api import main
 from weather_platform.ingestion.adapters.json_observation import JsonObservationAdapter
@@ -518,7 +519,8 @@ def test_direct_observation_cannot_claim_upstream_verification(tmp_path: Path, m
     monkeypatch.setattr(main, "raw_store", raw)
     monkeypatch.setattr(main, "store", JsonlObservationStore(tmp_path / "observations.jsonl"))
 
-    main.create_observation(observation)
+    request = Request({"type": "http", "method": "POST", "headers": []})
+    main.create_observation(request, observation)
 
     assert main.store.list()[0].provenance.digest_verification.value == "platform"
 

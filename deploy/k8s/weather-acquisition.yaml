@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: weather-ingestion
+  labels:
+    app.kubernetes.io/part-of: global-weather-platform
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: weather-acquisition
+  namespace: weather-ingestion
+  labels:
+    app.kubernetes.io/part-of: global-weather-platform
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather-gfs-acquisition
+  namespace: weather-ingestion
+  labels:
+    app.kubernetes.io/name: weather-gfs-acquisition
+    app.kubernetes.io/component: acquisition
+    app.kubernetes.io/part-of: global-weather-platform
+spec:
+  # The live HTTPS/SQS transport is a separately gated follow-on slice. Keeping
+  # this contract at zero replicas prevents a policy scaffold from being
+  # mistaken for an operational acquisition deployment.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: weather-gfs-acquisition
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: weather-gfs-acquisition
+        app.kubernetes.io/component: acquisition
+        app.kubernetes.io/part-of: global-weather-platform
+    spec:
+      serviceAccountName: weather-acquisition
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: acquisition
+          image: ghcr.io/protonmatter/global-weather-platform:0.1.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - weather-platform-acquisition
+          args:
+            - --require-live-transport
+          env:
+            - name: WEATHER_ENVIRONMENT
+              value: production
+            - name: WEATHER_ALLOW_EXTERNAL_EGRESS
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: working-data
+              mountPath: /var/lib/weather
+            - name: temporary-files
+              mountPath: /tmp
+      volumes:
+        - name: working-data
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: temporary-files
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: weather-ingestion-default-deny
+  namespace: weather-ingestion
+spec:
+  endpointSelector: {}
+  ingress: []
+  egress: []
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: weather-acquisition-provider-egress
+  namespace: weather-ingestion
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: weather-gfs-acquisition
+  ingress: []
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchName: noaa-gfs-bdp-pds.s3.amazonaws.com
+              - matchName: noaa-gefs-pds.s3.amazonaws.com
+              - matchName: api.openweathermap.org
+              - matchPattern: "*.cluster.local"
+    - toFQDNs:
+        - matchName: noaa-gfs-bdp-pds.s3.amazonaws.com
+        - matchName: noaa-gefs-pds.s3.amazonaws.com
+        - matchName: api.openweathermap.org
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: weather-data
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "5432"
+              protocol: TCP
