@@ -34,6 +34,10 @@ def test_wrapped_distance_handles_antimeridian() -> None:
     assert wrapped_longitude_distance(-180.0, 0.0) == pytest.approx(180.0)
 
 
+def test_wrapped_distance_handles_extreme_finite_inputs_without_overflow() -> None:
+    assert wrapped_longitude_distance(1e308, -1e308) == pytest.approx(128.0)
+
+
 def test_coordinate_functions_reject_non_finite_values() -> None:
     for value in (math.nan, math.inf, -math.inf):
         with pytest.raises(ValueError, match="finite"):
