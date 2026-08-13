@@ -27,6 +27,7 @@ weather-contract:
 		tests/unit/test_grid_assets.py \
 		tests/unit/test_grib_index.py \
 		tests/unit/test_gfs_manifest.py \
+		tests/unit/test_eccodes_backend.py \
 		tests/unit/test_cycle_lifecycle.py \
 		tests/unit/test_coordinates.py \
 		tests/unit/test_wind.py \
@@ -47,6 +48,7 @@ scientific-validation:
 		tests/unit/test_verification.py \
 		tests/unit/test_grid_assets.py \
 		tests/unit/test_gfs_manifest.py \
+		tests/unit/test_eccodes_backend.py \
 		tests/unit/test_cycle_lifecycle.py \
 		tests/unit/test_coordinates.py \
 		tests/unit/test_wind.py \
