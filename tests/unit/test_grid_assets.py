@@ -7,18 +7,19 @@ from pydantic import ValidationError
 
 from weather_platform.domain.grid_assets import (
     GridFieldAsset,
+    GridFieldProvenance,
     LongitudeConvention,
     StorageEncoding,
 )
 from weather_platform.domain.model_catalog import GuidanceOrigin
-from weather_platform.domain.models import Provenance, QualityDisposition
+from weather_platform.domain.models import QualityDisposition
 
 INIT = datetime(2026, 8, 12, 18, 0, tzinfo=UTC)
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 
 
-def provenance(**overrides: object) -> Provenance:
+def provenance(**overrides: object) -> GridFieldProvenance:
     payload: dict[str, object] = {
         "source_id": "noaa-gfs",
         "source_record_digest": DIGEST_A,
@@ -26,7 +27,7 @@ def provenance(**overrides: object) -> Provenance:
         "decoder_version": "grib-field-decoder/0.2.0+eccodes/2.38.3",
     }
     payload.update(overrides)
-    return Provenance.model_validate(payload)
+    return GridFieldProvenance.model_validate(payload)
 
 
 def asset(**overrides: object) -> GridFieldAsset:
