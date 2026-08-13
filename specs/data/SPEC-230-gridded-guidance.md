@@ -41,4 +41,6 @@ requirements:
 
 A grid asset is metadata for one model variable, vertical level, valid time, grid, and ensemble member. Numeric values remain in a scientific array or immutable source representation; the catalog record makes that array discoverable and reproducible.
 
+The ecCodes inventory decoder reads the provider `perturbationNumber` into the canonical member identity when the GRIB message defines it. Deterministic messages retain `member: null`, so ensemble members remain distinguishable without fabricating a member label.
+
 Phase 1 defines metadata and wire contracts. Production Zarr/COG persistence is a later slice that consumes this contract.
