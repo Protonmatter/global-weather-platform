@@ -4,9 +4,9 @@ import {
   problem,
   type ControlPlaneMode,
   type WeatherRuntimeEnv,
-} from "./weather-core";
+} from "./weather-core.ts";
 
-export * from "./weather-core";
+export * from "./weather-core.ts";
 
 type OperationalRuntimeEnv = WeatherRuntimeEnv & {
   CONTROL_PLANE_ALLOWED_HOSTS?: string;
