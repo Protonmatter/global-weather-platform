@@ -117,6 +117,12 @@ def test_illegal_backwards_transition_is_rejected() -> None:
         transition_cycle(CycleState.COMPLETE, CycleState.PARTIAL)
 
 
+def test_complete_cycle_can_be_quarantined_before_publication() -> None:
+    assert transition_cycle(CycleState.COMPLETE, CycleState.QUARANTINED) is (
+        CycleState.QUARANTINED
+    )
+
+
 def test_quarantine_and_forward_transitions_are_explicit() -> None:
     assert transition_cycle(CycleState.DISCOVERED, CycleState.INDEX_AVAILABLE) is (
         CycleState.INDEX_AVAILABLE
