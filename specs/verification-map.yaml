@@ -21,9 +21,8 @@ verifications:
     status: planned
     notes: Release-unit binding of software, model, configuration, and evidence is not implemented.
   TEST-SEC-0001:
-    status: implemented
-    evidence:
-      - tests/contract/test_weather_deployment_policy.py
+    status: planned
+    notes: Weather-specific acquisition and serving policies are tested, but repository-wide production workload enumeration and deny-by-default egress proof are not yet implemented.
   TEST-UNIT-0001:
     status: implemented
     evidence:
@@ -88,6 +87,12 @@ verifications:
       - tests/unit/test_cycle_lifecycle.py
       - tests/integration/test_weather_vertical_slice.py
       - tests/regression/test_weather_adversarial_regressions.py
+  TEST-CYCLE-PUBLISH-0002:
+    status: planned
+    notes: Persistent atomic replacement of the currently served usable cycle awaits the production model-asset catalog and serving alias implementation.
+  TEST-CYCLE-ALIAS-0003:
+    status: planned
+    notes: latest-published, latest-usable, and latest-complete catalog aliases are not implemented.
   TEST-WIND-0001:
     status: implemented
     evidence:
