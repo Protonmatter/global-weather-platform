@@ -41,22 +41,42 @@ def test_acquisition_workload_is_hardened_and_resource_bounded() -> None:
     assert resources["limits"]["memory"]
 
 
+def test_ingestion_namespace_denies_unapproved_pod_egress_by_default() -> None:
+    items = documents("deploy/k8s/weather-acquisition.yaml")
+    deny = find(items, "CiliumNetworkPolicy", "weather-ingestion-default-deny")
+    assert deny["metadata"]["namespace"] == "weather-ingestion"
+    assert deny["spec"]["endpointSelector"] == {}
+    assert deny["spec"]["ingress"] == []
+    assert deny["spec"]["egress"] == []
+
+
 def test_acquisition_egress_is_limited_to_declared_provider_names() -> None:
     items = documents("deploy/k8s/weather-acquisition.yaml")
     policy = find(items, "CiliumNetworkPolicy", "weather-acquisition-provider-egress")
     egress = policy["spec"]["egress"]
-    names = {
-        item["matchName"]
-        for rule in egress
-        for item in rule.get("toFQDNs", [])
-        if "matchName" in item
-    }
+    provider_rules = [rule for rule in egress if rule.get("toFQDNs")]
+    assert len(provider_rules) == 1
+
+    provider_rule = provider_rules[0]
+    names = {item["matchName"] for item in provider_rule["toFQDNs"]}
     assert names == {
         "noaa-gfs-bdp-pds.s3.amazonaws.com",
         "noaa-gefs-pds.s3.amazonaws.com",
         "api.openweathermap.org",
     }
-    assert all(rule.get("toPorts") for rule in egress)
+
+    to_ports = provider_rule["toPorts"]
+    assert to_ports == [
+        {
+            "ports": [
+                {
+                    "port": "443",
+                    "protocol": "TCP",
+                }
+            ]
+        }
+    ]
+    assert all("rules" not in port_rule for port_rule in to_ports)
 
 
 def test_serving_namespace_denies_arbitrary_egress() -> None:
