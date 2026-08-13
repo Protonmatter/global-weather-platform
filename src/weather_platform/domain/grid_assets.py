@@ -31,6 +31,12 @@ class StorageEncoding(StrEnum):
     BINARY_VECTOR_TILE = "binary-vector-tile"
 
 
+class GridFieldProvenance(Provenance):
+    """Immutable provenance evidence embedded in a gridded guidance asset."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class GridFieldAsset(BaseModel):
     """Metadata for one model field, valid time, grid, level, and member."""
 
