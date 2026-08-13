@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import pytest
 
 eccodes = pytest.importorskip("eccodes")
@@ -21,7 +23,7 @@ def _grib2(short_name: str, level: int, step: int) -> bytes:
 
 
 class _FakeEnsembleEccodes:
-    values = {
+    values: ClassVar[dict[str, object]] = {
         "level": 850,
         "shortName": "t",
         "typeOfLevel": "isobaricInhPa",
