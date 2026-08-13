@@ -87,6 +87,11 @@ def test_asset_requires_level_unit_with_level_value() -> None:
         asset(level_unit=None)
 
 
+def test_asset_rejects_empty_level_unit() -> None:
+    with pytest.raises(ValidationError, match="at least 1 character"):
+        asset(level_unit="")
+
+
 def test_accepted_asset_cannot_carry_unresolved_flags() -> None:
     with pytest.raises(ValidationError, match="quality flags"):
         asset(quality_flags=["range_suspect"])
@@ -116,3 +121,17 @@ def test_asset_requires_decoder_version_to_match_provenance() -> None:
             decoder_version="grib-field-decoder/0.3.0+eccodes/2.47.0",
             provenance=provenance(),
         )
+
+
+def test_asset_and_nested_evidence_are_immutable_after_validation() -> None:
+    item = asset()
+    assert item.quality_flags == ()
+
+    with pytest.raises(ValidationError, match="frozen"):
+        item.valid_at = INIT
+    with pytest.raises(ValidationError, match="frozen"):
+        item.source_record_digest = DIGEST_B
+    with pytest.raises(AttributeError):
+        item.quality_flags.append("range_suspect")
+    with pytest.raises(ValidationError, match="frozen"):
+        item.provenance.decoder_version = "grib-field-decoder/0.3.0+eccodes/2.47.0"
