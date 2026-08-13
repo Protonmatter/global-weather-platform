@@ -36,4 +36,6 @@ requirements:
 
 Selective GRIB retrieval reduces bandwidth but does not reduce evidence requirements. The platform retains each selected byte interval and its index context as an independently verifiable source record.
 
-Cross-field bounds and timestamp ordering are enforced by the typed domain model. JSON Schema enforces portable structural constraints; implementation validators enforce arithmetic relationships that standard JSON Schema cannot express portably.
+Operational construction uses `SourceSliceManifest.from_retained_bytes`, which validates the selected payload length and calculates both SHA-256 identities from the retained index and payload bytes. Direct model validation remains available for trusted replay and deserialization of an already-retained manifest.
+
+The manifest and all nested evidence models are frozen after validation. Cross-field bounds and timestamp ordering are enforced by the typed domain model. JSON Schema enforces portable structural constraints; implementation validators enforce arithmetic relationships that standard JSON Schema cannot express portably.
