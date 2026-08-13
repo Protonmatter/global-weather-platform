@@ -20,8 +20,42 @@ class IllegalCycleTransition(ValueError):
     """Raised when a model cycle attempts an invalid lifecycle transition."""
 
 
+class MismatchedCycleScopeError(ValueError):
+    """Raised when fields from different products are evaluated together."""
+
+
+@dataclass(frozen=True, slots=True)
+class CycleProductScope:
+    """Dimensions that define one coherent model product inventory."""
+
+    grid: str
+    lead_hours: int
+    member: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.grid.strip():
+            raise ValueError("grid must not be empty")
+        if self.lead_hours < 0:
+            raise ValueError("lead_hours must be non-negative")
+        if self.member is not None and not self.member.strip():
+            raise ValueError("member must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class CycleFieldArrival:
+    """A canonical field arrival bound to its complete product scope."""
+
+    name: str
+    scope: CycleProductScope
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("field name must not be empty")
+
+
 @dataclass(frozen=True, slots=True)
 class CyclePublicationState:
+    scope: CycleProductScope
     state: CycleState
     available_fields: frozenset[str]
     missing_minimum_fields: frozenset[str]
@@ -34,12 +68,13 @@ class CyclePublicationState:
 
 
 def evaluate_cycle(
-    available_fields: Iterable[str],
+    available_fields: Iterable[CycleFieldArrival],
     *,
+    scope: CycleProductScope,
     minimum_fields: Set[str],
     complete_fields: Set[str],
 ) -> CyclePublicationState:
-    """Evaluate publication eligibility from unique canonical field identities."""
+    """Evaluate one grid, lead, and ensemble-member product for publication."""
 
     minimum = frozenset(minimum_fields)
     complete = frozenset(complete_fields)
@@ -50,7 +85,14 @@ def evaluate_cycle(
     if not minimum <= complete:
         raise ValueError("minimum_fields must be a subset of complete_fields")
 
-    available = frozenset(available_fields)
+    arrivals = tuple(available_fields)
+    mismatched = [arrival for arrival in arrivals if arrival.scope != scope]
+    if mismatched:
+        raise MismatchedCycleScopeError(
+            "all available fields must match the evaluated grid, lead, and member scope"
+        )
+
+    available = frozenset(arrival.name for arrival in arrivals)
     recognized = available & complete
     missing_minimum = minimum - recognized
     missing_complete = complete - recognized
@@ -66,6 +108,7 @@ def evaluate_cycle(
         state = CycleState.PARTIAL
 
     return CyclePublicationState(
+        scope=scope,
         state=state,
         available_fields=available,
         missing_minimum_fields=frozenset(missing_minimum),
