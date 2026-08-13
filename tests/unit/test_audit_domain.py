@@ -49,3 +49,22 @@ def test_mutation_audit_detail_rejects_secret_shaped_keys() -> None:
     data["detail"] = {"authorization": "Bearer secret"}
     with pytest.raises(ValidationError, match="sensitive"):
         module.MutationAuditEvent.model_validate(data)
+
+
+def test_authoritative_audit_store_appends_and_replays(tmp_path) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    item = valid_event(domain)
+    store.append(item)
+    assert list(store.iter_events()) == [item]
+
+
+def test_authoritative_audit_store_rejects_duplicate_event_identity(tmp_path) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    item = valid_event(domain)
+    store.append(item)
+    with pytest.raises(ValueError, match="duplicate"):
+        store.append(item)
