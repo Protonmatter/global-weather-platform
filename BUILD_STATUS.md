@@ -41,19 +41,21 @@
 - Frozen `GridFieldAsset` domain contract and JSON Schema for one model variable, level, valid time, grid, and ensemble member
 - Immutable tuple-backed quality flags and frozen grid-specific provenance evidence
 - Enforced invariant: `valid_at == initialized_at + lead_seconds`
+- Valid-time arithmetic outside Python's supported datetime range is converted into a typed validation failure rather than escaping as `OverflowError`
 - Empty ensemble-member identifiers, empty level units, empty quality-flag identifiers, and non-finite vertical levels rejected at typed admission
 - Enforced source-digest/provenance and decoder-version/provenance agreement
 - Accepted assets prohibited from carrying unresolved quality flags
-- Strict NOAA-style GRIB index parsing with monotonic offsets, bounded final-message range derivation, and malformed-input rejection
+- Strict NOAA-style GRIB index parsing with consecutive message-number validation, monotonic offsets, bounded final-message range derivation, and malformed-input rejection
 - Deterministic required-field selection that fails on missing or ambiguous matches
 - GFS minimum-usable field manifest for 10 m U/V wind, 2 m temperature, 2 m relative humidity, and mean sea-level pressure
 - Extended complete manifest including gust, cloud cover, and precipitation
 - Canonical ecCodes-to-platform GFS field identity mapping
+- ecCodes `perturbationNumber` extraction preserves provider ensemble-member identities while deterministic messages remain unlabeled
 - Explicit cycle states: discovered, index available, downloading, missing, partial, minimum usable, complete, quarantined, superseded, and expired
 - Required-field readiness evaluated per coherent grid, forecast lead, and ensemble-member scope
 - Duplicate arrivals within the exact product scope do not inflate completeness; mixed scopes are rejected
 - Complete but not-yet-published cycles may transition to quarantine when integrity or scientific validation fails
-- GeoJSON-range longitude normalization and antimeridian-safe angular distance
+- GeoJSON-range longitude normalization and antimeridian-safe angular distance, including extreme finite inputs that would overflow before wrapping
 - Meteorological direction-to-U/V conversion validated against all cardinal directions
 - Versioned deterministic binary U/V tile format with signed 16-bit interleaving, explicit scale/offset metadata, strict length validation, and bounded reconstruction error
 - Overflow-safe vector quantization for very large finite component ranges; non-representable metadata fails closed with `VectorTileError`
@@ -61,6 +63,7 @@
 - Hardened acquisition deployment contract with non-root execution, dropped capabilities, read-only root filesystem, and resource bounds
 - Namespace-wide `weather-ingestion` Cilium default-deny policy prevents unlabeled or unapproved pods from inheriting unrestricted egress
 - Approved acquisition pods receive an additive FQDN allowlist for provider TLS traffic over TCP 443 without plaintext HTTP L7 parsing
+- Provider and cluster DNS queries pass through explicit Cilium DNS-proxy rules so `toFQDNs` identities can be learned without opening arbitrary DNS egress
 - Separate serving namespace with default-deny ingress and egress
 - Acquisition Deployment intentionally fixed at `replicas: 0` pending the live-transport activation gate
 
@@ -71,7 +74,7 @@
 - Dedicated JSON Schema and Kubernetes deployment-contract gate
 - Dedicated scientific-validation gate
 - Fixture-driven vertical-slice integration gate
-- Immutable adversarial regression suite for antimeridian behavior, wind direction, duplicate arrivals, mixed product scopes, forecast-hour ambiguity, model valid-time integrity, evidence immutability, empty quality identifiers, complete-cycle quarantine, namespace default-deny, TLS-safe provider egress, and extreme finite vector ranges
+- Immutable adversarial regression suite for antimeridian behavior, extreme finite longitude arithmetic, wind direction, duplicate arrivals, mixed product scopes, forecast-hour ambiguity, GRIB index gaps, model valid-time integrity and overflow, ensemble-member preservation, evidence immutability, empty quality identifiers, complete-cycle quarantine, namespace default-deny, TLS-safe provider egress, Cilium DNS observation, and extreme finite vector ranges
 - JUnit evidence artifacts for focused schema, scientific, contract, and integration workflows
 - Local Make targets matching the CI test taxonomy
 
@@ -90,8 +93,8 @@ Verified in GitHub Actions on the RFC-0002 Phase-1 pull request after all review
 
 - Specification validation: **40 requirements and 25 verification references**
 - JSON Schema meta-validation: **7 schemas**
-- Python tests: **252 passed**
-- Python branch coverage: **92.97%** against a required minimum of 90%
+- Python tests: **257 passed**
+- Python branch coverage: **93.02%** against a required minimum of 90%
 - Ruff lint: passed
 - Ruff format: **106 files already formatted**
 - Mypy strict mode: **41 source files, no issues**
@@ -105,12 +108,12 @@ Verified in GitHub Actions on the RFC-0002 Phase-1 pull request after all review
 - Operator-console rendered-artifact tests: **2 passed**
 - Full CI bootstrap workflow: passed
 - Generated traceability freshness check: passed
-- Pull-request review remediation: **15 P2 threads addressed and resolved**
+- Pull-request review remediation: **20 P2 threads addressed and resolved**
 
 ## Partially implemented
 
 - Acquisition transport integrity: issuer-allowlist verification, fail-closed handling of unpinned issuers, and upstream-checksum verification are implemented and tested in the existing transport-trust core; live NOAA HTTP/S3/SQS wiring is not enabled
-- GRIB2/BUFR decoder service: real ecCodes GRIB2 inventory decoding is implemented and tested; numeric global-array extraction, canonical array persistence, and full BUFR-to-observation decoding remain follow-on work
+- GRIB2/BUFR decoder service: real ecCodes GRIB2 inventory decoding, including provider ensemble-member identity extraction, is implemented and tested; numeric global-array extraction, canonical array persistence, and full BUFR-to-observation decoding remain follow-on work
 - Model-cycle lifecycle: scope-aware readiness classification and state-transition validation are implemented; persistent serving replacement and latest-published/latest-usable/latest-complete aliases remain planned
 - OGC API EDR: position queries exist; gridded area and cube queries await production grid persistence
 - Forecast-product UI: the operator console covers authenticated control-plane workflows; the separate forecast-map experience remains specified but not implemented
