@@ -2,9 +2,9 @@
 
 **Status:** Implemented on pull request branch; awaiting review and merge  
 **Base:** `main` after dependency-security PR #27  
-**Validated code head:** `49daef2d892b6ee8b4d328112e980f97af4a55d1`
+**Validated code head:** `536c298f017d2ab11e6d2da10b69d7924cee4c09`
 
-**GitHub Actions merge ref:** `3b1895e16d7fe5eaed7c10a3a8a9862aee18d47d`
+**GitHub Actions merge ref:** `fed67c53f4d216813d204e1daa791d9ae086a083`
 
 ## Implemented
 
@@ -21,7 +21,7 @@
 - Build-system dependencies, including `setuptools` and `wheel`, are included in the locks.
 - Primary, bootstrap, specification, schema, scientific, weather-contract, and integration workflows install from the checked lock with `--require-hashes`.
 - The permanent `python-lock` workflow regenerates locks and fails on drift.
-- Release wheel construction uses the production lock, an immutable base-image digest, a disposable job-local Python environment, and an offline container build. The build does not install dependencies into the self-hosted runner's shared Python environment.
+- Release wheel construction uses the production lock, an immutable base-image digest under the explicitly approved internal registry, a disposable job-local Python environment, and an offline container build. The build rejects external base-image repositories and does not install dependencies into the self-hosted runner's shared Python environment.
 
 ### Authoritative mutation accountability
 
@@ -46,7 +46,7 @@
 - Remote `CONTROL_PLANE_URL` requires HTTPS, a DNS hostname, no userinfo, path, query, fragment, or IP literal, and an explicit `CONTROL_PLANE_ALLOWED_HOSTS` match.
 - Local HTTP is permitted only for loopback development.
 - Destination validation occurs before the BFF reads or attaches the service credential.
-- Upstream responses are rebuilt from an explicit safe response-header set; cookies and internal/debug headers are discarded.
+- Upstream responses are rebuilt from an explicit safe response-header set; cookies and internal/debug headers are discarded. Successful mapped JSON responses preserve the authoritative `x-request-id` while replacing representation-specific headers.
 
 ### Immutable release identity
 
@@ -58,14 +58,14 @@
 
 ## Verification evidence
 
-GitHub Actions verified code head `49daef2d892b6ee8b4d328112e980f97af4a55d1` through pull-request merge ref `3b1895e16d7fe5eaed7c10a3a8a9862aee18d47d`. This document is intentionally committed after that code-changing commit so the evidence record does not claim to validate its own commit hash.
+GitHub Actions verified code head `536c298f017d2ab11e6d2da10b69d7924cee4c09` through pull-request merge ref `fed67c53f4d216813d204e1daa791d9ae086a083`. This document is intentionally committed after that code-changing commit so the evidence record does not claim to validate its own commit hash.
 
-- Python tests: **307 passed**
+- Python tests: **308 passed**
 - Python branch coverage: **90.84%**, above the required 90%
 - Ruff lint: passed
 - Ruff formatting: **121 files already formatted**
 - Mypy strict mode: **48 source files, no issues**
-- Operator-console unit contracts: **27 passed**
+- Operator-console unit contracts: **28 passed**
 - Operator-console rendered-artifact tests: **2 passed**
 - Operator-console lint, TypeScript checking, production build, and artifact validation: passed
 - Hash-pinned lock regeneration and freshness comparison: passed
