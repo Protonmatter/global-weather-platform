@@ -12,7 +12,13 @@ from weather_platform.storage.model_catalog_store import ModelGuidanceCatalog
 from weather_platform.storage.raw import RawSourceStore
 
 
-def isolated_client(tmp_path: Path, monkeypatch, *, production: bool = False):
+def isolated_client(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    production: bool = False,
+    raise_server_exceptions: bool = True,
+):
     credential = "x" * 32 if production else None
     settings = Settings(
         _env_file=None,
@@ -22,18 +28,17 @@ def isolated_client(tmp_path: Path, monkeypatch, *, production: bool = False):
     )
     monkeypatch.setattr(main, "settings", settings)
     monkeypatch.setattr(main, "store", JsonlObservationStore(settings.observation_path))
-    monkeypatch.setattr(
-        main,
-        "raw_store",
-        RawSourceStore(settings.raw_source_dir),
-    )
+    monkeypatch.setattr(main, "raw_store", RawSourceStore(settings.raw_source_dir))
     monkeypatch.setattr(
         main,
         "model_catalog",
         ModelGuidanceCatalog(settings.model_catalog_path),
     )
     monkeypatch.setattr(main, "audit_store", AuthoritativeAuditStore(settings.audit_path))
-    return TestClient(main.app), credential
+    return (
+        TestClient(main.app, raise_server_exceptions=raise_server_exceptions),
+        credential,
+    )
 
 
 def service_headers(credential: str, request_id: str | None = None) -> dict[str, str]:
@@ -80,7 +85,11 @@ def test_failed_mutation_has_a_terminal_failed_event(tmp_path, monkeypatch) -> N
 
 
 def test_initial_audit_failure_prevents_source_retention(tmp_path, monkeypatch) -> None:
-    client, _ = isolated_client(tmp_path, monkeypatch)
+    client, _ = isolated_client(
+        tmp_path,
+        monkeypatch,
+        raise_server_exceptions=False,
+    )
     payload = b"must not be retained"
     digest = sha256_digest(payload)
 
