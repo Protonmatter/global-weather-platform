@@ -4,9 +4,29 @@ set -euo pipefail
 : "${PIP_INDEX_URL:?PIP_INDEX_URL must reference the approved internal package mirror}"
 : "${BASE_IMAGE:?BASE_IMAGE must be an internally mirrored digest-pinned image}"
 : "${IMAGE:?IMAGE must identify the internal output registry and tag}"
+: "${INTERNAL_REGISTRY:?INTERNAL_REGISTRY must identify the approved internal registry}"
 
-[[ "${BASE_IMAGE}" =~ @sha256:[a-f0-9]{64}$ ]] || {
-  echo "BASE_IMAGE must use an immutable sha256 digest" >&2
+OCI_NAME_COMPONENT='[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*'
+REGISTRY_PATTERN="^${OCI_NAME_COMPONENT}(:[0-9]{1,5})?$"
+IMAGE_REFERENCE_PATTERN="^(${OCI_NAME_COMPONENT}(:[0-9]{1,5})?)(/${OCI_NAME_COMPONENT})+@sha256:[a-f0-9]{64}$"
+
+[[ "${INTERNAL_REGISTRY}" =~ ${REGISTRY_PATTERN} ]] || {
+  echo "INTERNAL_REGISTRY must use a normalized OCI registry name" >&2
+  exit 78
+}
+if [[ "${INTERNAL_REGISTRY}" =~ :([0-9]+)$ ]]; then
+  registry_port="${BASH_REMATCH[1]}"
+  (( 10#${registry_port} >= 1 && 10#${registry_port} <= 65535 )) || {
+    echo "INTERNAL_REGISTRY port must be between 1 and 65535" >&2
+    exit 78
+  }
+fi
+[[ "${BASE_IMAGE}" =~ ${IMAGE_REFERENCE_PATTERN} ]] || {
+  echo "BASE_IMAGE must use a normalized repository-qualified immutable sha256 reference" >&2
+  exit 78
+}
+[[ "${BASH_REMATCH[1]}" == "${INTERNAL_REGISTRY}" ]] || {
+  echo "BASE_IMAGE must use the approved internal registry" >&2
   exit 78
 }
 test -f requirements/production.lock

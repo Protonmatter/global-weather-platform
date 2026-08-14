@@ -11,6 +11,7 @@ import {
   deterministicObservationId,
   isPhenomenon,
   longitudeRanges,
+  mappedJsonResponse,
   normalizeObservationInput,
   parseDatetimeInterval,
   parseWktPoint,
@@ -360,4 +361,34 @@ test("authoritative responses are normalized to console DTOs", () => {
     collections.collections[0].data_queries.position.link.href,
     "/api/v1/edr/collections/observations/position",
   );
+});
+
+test("mapped JSON responses preserve safe correlation headers", async () => {
+  const requestId = "7e190a25-b84f-47ab-b6ac-dac1c6f0d425";
+  const upstream = new Response(JSON.stringify({ status: "ok" }), {
+    status: 200,
+    headers: {
+      "cache-control": "private, no-store",
+      "content-length": "15",
+      "content-type": "application/vnd.weather+json",
+      etag: '"upstream-representation"',
+      "set-cookie": "session=must-not-escape",
+      "x-request-id": requestId,
+    },
+  });
+
+  const response = await mappedJsonResponse(
+    new Request("https://site.example/api/v1/healthz"),
+    upstream,
+    (payload) => ({ mapped: payload }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-request-id"), requestId);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.equal(response.headers.get("content-length"), null);
+  assert.equal(response.headers.get("etag"), null);
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.deepEqual(await response.json(), { mapped: { status: "ok" } });
 });

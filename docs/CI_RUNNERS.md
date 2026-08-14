@@ -54,7 +54,12 @@ Set these repository variables for `build-image.yml`:
 
 - `PYPI_MIRROR_URL`: approved internal Python mirror.
 - `INTERNAL_REGISTRY`: internal OCI registry host.
-- `PYTHON_BASE_IMAGE`: internally mirrored, digest-pinned base image.
+- `PYTHON_BASE_IMAGE`: internally mirrored, digest-pinned base image whose
+  repository is under `INTERNAL_REGISTRY`.
+
+The image build validates the complete normalized base-image reference and
+fails with exit code 78 if its registry component does not exactly match
+`INTERNAL_REGISTRY`.
 
 The runner environment, rather than repository variables, supplies:
 

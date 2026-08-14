@@ -156,11 +156,17 @@ def test_release_renderer_requires_a_real_digest(tmp_path) -> None:
 
 def test_release_workflow_binds_evidence_to_the_built_repository() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/build-image.yml").read_text("utf-8"))
+    build_step = next(
+        step
+        for step in workflow["jobs"]["build"]["steps"]
+        if step["name"] == "Build wheelhouse from the internal mirror"
+    )
     render_step = next(
         step
         for step in workflow["jobs"]["build"]["steps"]
         if step["name"] == "Render immutable release evidence"
     )
+    assert build_step["env"]["INTERNAL_REGISTRY"] == "${{ vars.INTERNAL_REGISTRY }}"
     assert "--expected-repository" in render_step["run"]
     assert "${{ vars.INTERNAL_REGISTRY }}/weather/platform" in render_step["run"]
 
@@ -235,6 +241,7 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
         {
             "BASE_IMAGE": "registry.example/python@sha256:" + "a" * 64,
             "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
             "PIP_INDEX_URL": "https://packages.example/simple",
         }
     )
@@ -266,3 +273,45 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
     assert not any(command.startswith("system:-m pip ") for command in commands)
     assert sum(command.startswith("venv:-m pip ") for command in commands) == 3
     assert any(command.startswith("docker:build ") for command in commands)
+
+
+def test_image_build_rejects_a_base_image_outside_the_approved_registry(
+    tmp_path: Path,
+) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+    build_script = ROOT / "scripts/build_image.sh"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "public.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
+            "PIP_INDEX_URL": "https://packages.example/simple",
+        }
+    )
+    if os.name == "nt":
+        environment["BUILD_SCRIPT_WINDOWS"] = str(build_script)
+        command = [bash, "-lc", 'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"']
+    else:
+        command = [bash, str(build_script)]
+
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 78
+    assert "approved internal registry" in result.stderr

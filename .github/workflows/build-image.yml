@@ -29,6 +29,7 @@ jobs:
           PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
           IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
           BASE_IMAGE: ${{ vars.PYTHON_BASE_IMAGE }}
+          INTERNAL_REGISTRY: ${{ vars.INTERNAL_REGISTRY }}
         run: ./scripts/build_image.sh
       - name: Push, scan, sign, and attest internally
         env:

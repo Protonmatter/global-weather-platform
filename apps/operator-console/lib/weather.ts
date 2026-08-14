@@ -2,6 +2,7 @@ import {
   ControlPlaneConfigurationError,
   getRuntimeBindings,
   problem,
+  safeUpstreamResponseHeaders,
   type ControlPlaneMode,
   type WeatherRuntimeEnv,
 } from "./weather-core.ts";
@@ -11,17 +12,6 @@ export * from "./weather-core.ts";
 type OperationalRuntimeEnv = WeatherRuntimeEnv & {
   CONTROL_PLANE_ALLOWED_HOSTS?: string;
 };
-
-const SAFE_RESPONSE_HEADERS = [
-  "allow",
-  "cache-control",
-  "content-type",
-  "etag",
-  "last-modified",
-  "retry-after",
-  "www-authenticate",
-  "x-request-id",
-] as const;
 
 const DNS_HOSTNAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -171,19 +161,6 @@ export function controlPlaneConfigurationProblem(request: Request) {
     "CONTROL_PLANE_URL must identify an approved control-plane origin.",
     "urn:weather:problem:control-plane-configuration",
   );
-}
-
-export function safeUpstreamResponseHeaders(source: Headers) {
-  const safe = new Headers();
-  for (const name of SAFE_RESPONSE_HEADERS) {
-    const value = source.get(name);
-    if (value !== null) safe.set(name, value);
-  }
-  const location = source.get("location");
-  if (location !== null && (location === "/" || /^\/[^/\\]/.test(location))) {
-    safe.set("location", location);
-  }
-  return safe;
 }
 
 export async function proxyToControlPlane(

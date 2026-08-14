@@ -4,6 +4,17 @@ const OBSERVATION_ID_NAMESPACE = "aaea81f8-6c64-583a-98bc-941faf205ff2";
 const AWARE_ISO_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+const SAFE_RESPONSE_HEADERS = [
+  "allow",
+  "cache-control",
+  "content-type",
+  "etag",
+  "last-modified",
+  "retry-after",
+  "www-authenticate",
+  "x-request-id",
+] as const;
+
 export type QualityDisposition =
   | "accept"
   | "accept_with_flags"
@@ -223,6 +234,19 @@ export async function readBoundedRequestBody(
   return payload.buffer;
 }
 
+export function safeUpstreamResponseHeaders(source: Headers) {
+  const safe = new Headers();
+  for (const name of SAFE_RESPONSE_HEADERS) {
+    const value = source.get(name);
+    if (value !== null) safe.set(name, value);
+  }
+  const location = source.get("location");
+  if (location !== null && (location === "/" || /^\/[^/\\]/.test(location))) {
+    safe.set("location", location);
+  }
+  return safe;
+}
+
 export async function proxyToControlPlane(
   request: Request,
   upstreamPath: string,
@@ -268,7 +292,7 @@ export async function proxyToControlPlane(
   });
   return new Response(response.body, {
     status: response.status,
-    headers: response.headers,
+    headers: safeUpstreamResponseHeaders(response.headers),
   });
 }
 
@@ -459,8 +483,12 @@ export async function mappedJsonResponse(
 ) {
   if (!response.ok) return response;
   try {
+    const headers = safeUpstreamResponseHeaders(response.headers);
+    headers.delete("content-type");
+    headers.delete("etag");
     return Response.json(mapper(await response.json()), {
       status: response.status,
+      headers,
     });
   } catch {
     return problem(
