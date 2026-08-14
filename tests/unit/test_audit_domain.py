@@ -26,6 +26,16 @@ def valid_event(module):
     )
 
 
+def audit_store_for_test(storage, tmp_path, monkeypatch):
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(
+            storage.AuthoritativeAuditStore,
+            "_fsync_directory",
+            staticmethod(lambda _path: None),
+        )
+    return storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+
+
 def test_mutation_audit_event_is_frozen_and_serializable() -> None:
     module = audit_module()
     event = valid_event(module)
@@ -98,14 +108,8 @@ def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch
 def test_pending_success_reconciles_after_process_restart(tmp_path, monkeypatch) -> None:
     domain = audit_module()
     storage = import_module("weather_platform.storage.audit")
-    if not hasattr(os, "O_DIRECTORY"):
-        monkeypatch.setattr(
-            storage.AuthoritativeAuditStore,
-            "_fsync_directory",
-            staticmethod(lambda _path: None),
-        )
-    audit_path = tmp_path / "mutation-audit.jsonl"
-    store = storage.AuthoritativeAuditStore(audit_path)
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    audit_path = store.path
     attempted = valid_event(domain)
     succeeded = attempted.model_copy(
         update={
@@ -121,3 +125,67 @@ def test_pending_success_reconciles_after_process_restart(tmp_path, monkeypatch)
 
     assert list(restarted.iter_events()) == [attempted, succeeded]
     assert not list(restarted.pending_events())
+
+
+def test_prepare_terminal_rejects_non_success_event(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="only succeeded"):
+        store.prepare_terminal(valid_event(domain))
+
+
+def test_prepare_terminal_rejects_duplicate_prepared_identity(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    store.prepare_terminal(succeeded)
+
+    with pytest.raises(ValueError, match="duplicate"):
+        store.prepare_terminal(succeeded)
+
+
+def test_pending_events_reject_malformed_outbox_entry(tmp_path, monkeypatch) -> None:
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    malformed = store._outbox_file(uuid4(), "pending")
+    malformed.write_text("not-json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid audit outbox event"):
+        list(store.pending_events())
+
+
+def test_discard_unknown_terminal_is_idempotent(tmp_path, monkeypatch) -> None:
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+
+    store.discard_terminal(uuid4())
+
+    assert not list(store.pending_events())
+
+
+def test_commit_terminal_is_idempotent_after_ledger_append(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+    store.commit_terminal(terminal_id)
+
+    store.commit_terminal(terminal_id)
+
+    assert list(store.iter_events()) == [succeeded]
+
+
+def test_commit_terminal_rejects_unknown_identity(tmp_path, monkeypatch) -> None:
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="unknown prepared audit event"):
+        store.commit_terminal(uuid4())

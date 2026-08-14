@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
@@ -58,6 +59,27 @@ def service_headers(credential: str, request_id: str | None = None) -> dict[str,
     if request_id is not None:
         headers["x-request-id"] = request_id
     return headers
+
+
+def succeeded_event(
+    *,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    detail: dict | None = None,
+) -> MutationAuditEvent:
+    return MutationAuditEvent(
+        event_id=uuid4(),
+        request_id=uuid4(),
+        actor="operator@example.invalid",
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        result=MutationResult.SUCCEEDED,
+        occurred_at=datetime.now(UTC),
+        software_version=main.__version__,
+        detail=detail or {},
+    )
 
 
 def test_request_identifier_is_echoed_and_bound_to_audit_events(tmp_path, monkeypatch) -> None:
@@ -153,6 +175,100 @@ def test_restart_reconciles_success_committed_before_terminal_audit(tmp_path, mo
         MutationResult.ATTEMPTED,
         MutationResult.SUCCEEDED,
     ]
+
+
+def test_restart_reconciles_completed_source_ingestion(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = (
+        Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json"
+    ).read_bytes()
+    monkeypatch.setattr(main.audit_store, "commit_terminal", lambda _event_id: None)
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 202
+    main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
+    main._reconcile_pending_audit()
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.SUCCEEDED,
+    ]
+    assert not list(main.audit_store.pending_events())
+
+
+def test_restart_keeps_undecodable_ingestion_success_pending(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = b"retained but undecodable after interruption"
+    monkeypatch.setattr(main.audit_store, "discard_terminal", lambda _event_id: None)
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 422
+    main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
+    main._reconcile_pending_audit()
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.FAILED,
+    ]
+    pending = list(main.audit_store.pending_events())
+    assert len(pending) == 1
+    assert pending[0].action == "source_record.ingested"
+
+
+@pytest.mark.parametrize(
+    ("action", "resource_type", "resource_id", "detail"),
+    [
+        ("source_record.retained", "source_record", "sha256:" + "a" * 64, {}),
+        ("observation.admitted", "observation", str(UUID(int=1)), {}),
+        ("model_cycle.catalogued", "model_cycle", str(UUID(int=2)), {}),
+        ("source_record.ingested", "source_record", "sha256:" + "b" * 64, {}),
+        ("future.unknown", "future_resource", "resource-1", {}),
+    ],
+)
+def test_restart_leaves_unproven_success_pending(
+    tmp_path,
+    monkeypatch,
+    action,
+    resource_type,
+    resource_id,
+    detail,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    event = succeeded_event(
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        detail=detail,
+    )
+
+    assert main._canonical_mutation_succeeded(event) is False
+
+
+def test_restart_does_not_publish_rejected_source_ingestion(tmp_path, monkeypatch) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    record = json.loads(
+        (Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json").read_text()
+    )
+    record["quality_disposition"] = "reject"
+    payload = json.dumps(record).encode()
+    digest = main.raw_store.store(payload)
+    event = succeeded_event(
+        action="source_record.ingested",
+        resource_type="source_record",
+        resource_id=digest,
+        detail={"byte_length": len(payload)},
+    )
+
+    assert main._canonical_mutation_succeeded(event) is False
+
+
+def test_empty_raw_deposit_is_rejected_before_audit(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+
+    response = client.put(f"/v1/source-records/sha256:{'a' * 64}", content=b"")
+
+    assert response.status_code == 422
+    assert list(main.audit_store.iter_events()) == []
 
 
 def test_restart_does_not_publish_conflicting_observation_as_success(
