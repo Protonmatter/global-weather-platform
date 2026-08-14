@@ -1,3 +1,6 @@
+import os
+import shutil
+import subprocess
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -181,3 +184,85 @@ def test_integration_workflow_installs_from_the_checked_lock() -> None:
 def test_runtime_image_installs_the_locked_eccodes_extra() -> None:
     dockerfile = (ROOT / "deploy/docker/Dockerfile").read_text(encoding="utf-8")
     assert "global-weather-platform[eccodes]" in dockerfile
+
+
+def test_image_build_uses_a_job_local_python_environment(tmp_path: Path) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "commands.log"
+    fake_python = fake_bin / "python3.12"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'system:%s\\n' "$*" >> "$COMMAND_LOG"
+if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
+  mkdir -p "$3/bin"
+  cat > "$3/bin/python" <<'PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'venv:%s\\n' "$*" >> "$COMMAND_LOG"
+PYTHON
+  chmod +x "$3/bin/python"
+fi
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_python.chmod(0o755)
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_docker.chmod(0o755)
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "registry.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "PIP_INDEX_URL": "https://packages.example/simple",
+        }
+    )
+    build_script = ROOT / "scripts/build_image.sh"
+    if os.name == "nt":
+        environment.update(
+            {
+                "BUILD_SCRIPT_WINDOWS": str(build_script),
+                "COMMAND_LOG_WINDOWS": str(command_log),
+                "FAKE_BIN_WINDOWS": str(fake_bin),
+            }
+        )
+        command = [
+            bash,
+            "-lc",
+            'export COMMAND_LOG="$(cygpath -u "$COMMAND_LOG_WINDOWS")"; '
+            'export PATH="$(cygpath -u "$FAKE_BIN_WINDOWS"):$PATH"; '
+            'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"',
+        ]
+    else:
+        environment["COMMAND_LOG"] = str(command_log)
+        environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+        command = [bash, str(build_script)]
+
+    subprocess.run(command, cwd=tmp_path, env=environment, check=True)
+
+    commands = command_log.read_text(encoding="utf-8").splitlines()
+    assert commands[0].startswith("system:-m venv ")
+    assert not any(command.startswith("system:-m pip ") for command in commands)
+    assert sum(command.startswith("venv:-m pip ") for command in commands) == 3
+    assert any(command.startswith("docker:build ") for command in commands)

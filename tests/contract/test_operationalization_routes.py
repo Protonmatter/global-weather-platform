@@ -196,6 +196,41 @@ def test_restart_reconciles_completed_source_ingestion(tmp_path, monkeypatch) ->
     assert not list(main.audit_store.pending_events())
 
 
+def test_restart_reconciles_model_cycle_appended_by_the_same_mutation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    field = ModelCycleField(
+        variable="air_temperature",
+        level_type="surface",
+        grid="global-0.25-degree",
+        lead_hours=0,
+    )
+    cycle = ModelGuidanceCycle(
+        model_id="gfs",
+        model_version="v16",
+        guidance_origin=GuidanceOrigin.IMPORTED,
+        initialized_at=datetime(2026, 8, 13, tzinfo=UTC),
+        source_revision="revision-1",
+        grids=[field.grid],
+        expected_fields=[field],
+        available_fields=[field],
+    )
+    monkeypatch.setattr(main.audit_store, "commit_terminal", lambda _event_id: None)
+
+    response = client.post("/v1/model-cycles", json=cycle.model_dump(mode="json"))
+
+    assert response.status_code == 202
+    main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
+    main._reconcile_pending_audit()
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.SUCCEEDED,
+    ]
+    assert not list(main.audit_store.pending_events())
+
+
 def test_restart_keeps_undecodable_ingestion_success_pending(tmp_path, monkeypatch) -> None:
     client, _ = isolated_client(tmp_path, monkeypatch)
     payload = b"retained but undecodable after interruption"
@@ -370,6 +405,60 @@ def test_restart_checks_latest_model_cycle_state_before_publishing_success(
     assert list(main.audit_store.pending_events()) == [succeeded]
 
 
+def test_restart_does_not_use_an_identical_prior_cycle_for_a_new_request(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    field = ModelCycleField(
+        variable="air_temperature",
+        level_type="surface",
+        grid="global-0.25-degree",
+        lead_hours=0,
+    )
+    expected = ModelGuidanceCycle(
+        model_id="gfs",
+        model_version="v16",
+        guidance_origin=GuidanceOrigin.IMPORTED,
+        initialized_at=datetime(2026, 8, 13, tzinfo=UTC),
+        source_revision="revision-1",
+        grids=[field.grid],
+        expected_fields=[field],
+        available_fields=[field],
+    )
+    main.model_catalog.register(expected)
+    resource_id = str(main._core._cycle_summary(expected)["id"])
+    attempted = MutationAuditEvent(
+        event_id=uuid4(),
+        request_id=uuid4(),
+        actor="operator@example.invalid",
+        action="model_cycle.catalogued",
+        resource_type="model_cycle",
+        resource_id=resource_id,
+        result=MutationResult.ATTEMPTED,
+        occurred_at=datetime.now(UTC),
+        software_version=main.__version__,
+        detail={"guidance_origin": GuidanceOrigin.IMPORTED.value},
+    )
+    succeeded = attempted.model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": MutationResult.SUCCEEDED,
+            "detail": {
+                "guidance_origin": GuidanceOrigin.IMPORTED.value,
+                "content_digest": sha256_digest(expected.model_dump_json().encode()),
+            },
+        }
+    )
+    main.audit_store.append(attempted)
+    main.audit_store.prepare_terminal(succeeded)
+
+    main._reconcile_pending_audit()
+
+    assert list(main.audit_store.iter_events()) == [attempted]
+    assert list(main.audit_store.pending_events()) == [succeeded]
+
+
 def test_decode_failure_audits_retained_source_evidence(tmp_path, monkeypatch) -> None:
     client, _ = isolated_client(tmp_path, monkeypatch)
     payload = b"not a decodable observation"
@@ -384,6 +473,56 @@ def test_decode_failure_audits_retained_source_evidence(tmp_path, monkeypatch) -
     assert failed.result == MutationResult.FAILED
     assert failed.detail == {
         "error_type": "SourceDecodeError",
+        "retained": True,
+    }
+
+
+def test_quality_rejection_audits_retained_source_evidence(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    record = json.loads(
+        (Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json").read_text()
+    )
+    record["quality_disposition"] = "reject"
+    payload = json.dumps(record).encode()
+    digest = sha256_digest(payload)
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 422
+    assert main.raw_store.retrieve(digest) == payload
+    attempted, failed = main.audit_store.iter_events()
+    assert attempted.result == MutationResult.ATTEMPTED
+    assert failed.result == MutationResult.FAILED
+    assert failed.detail == {
+        "error_type": "HTTPException",
+        "retained": True,
+    }
+
+
+def test_canonical_conflict_audits_retained_source_evidence(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = (
+        Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json"
+    ).read_bytes()
+    digest = sha256_digest(payload)
+    decoded = main.ingest_source_record(
+        payload,
+        adapter=main.adapter,
+        raw_store=main.raw_store,
+    ).observations[0]
+    admitted = main._core._with_platform_verification(decoded)
+    assert admitted.value is not None
+    main.store.append(admitted.model_copy(update={"value": admitted.value + 1.0}))
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 409
+    assert main.raw_store.retrieve(digest) == payload
+    attempted, failed = main.audit_store.iter_events()
+    assert attempted.result == MutationResult.ATTEMPTED
+    assert failed.result == MutationResult.FAILED
+    assert failed.detail == {
+        "error_type": "HTTPException",
         "retained": True,
     }
 

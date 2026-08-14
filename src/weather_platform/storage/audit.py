@@ -1,5 +1,6 @@
 import fcntl
 import os
+import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -58,6 +59,7 @@ class AuthoritativeAuditStore:
     def _iter_ledger_events(self) -> Iterator[MutationAuditEvent]:
         if not self.path.exists():
             return
+        self._repair_incomplete_ledger_tail()
         with self.path.open("r", encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, start=1):
                 if not line.strip():
@@ -66,6 +68,51 @@ class AuthoritativeAuditStore:
                     yield MutationAuditEvent.model_validate_json(line)
                 except ValueError as exc:
                     raise ValueError(f"invalid audit event at line {line_number}") from exc
+
+    def _repair_incomplete_ledger_tail(self) -> None:
+        """Remove only an invalid final record that lacks the required newline."""
+
+        descriptor = os.open(self.path, os.O_RDWR)
+        try:
+            size = os.fstat(descriptor).st_size
+            if size == 0:
+                return
+            os.lseek(descriptor, size - 1, os.SEEK_SET)
+            if os.read(descriptor, 1) == b"\n":
+                return
+
+            tail_start = 0
+            position = size
+            while position > 0:
+                read_start = max(0, position - 8192)
+                os.lseek(descriptor, read_start, os.SEEK_SET)
+                chunk = os.read(descriptor, position - read_start)
+                newline = chunk.rfind(b"\n")
+                if newline >= 0:
+                    tail_start = read_start + newline + 1
+                    break
+                position = read_start
+
+            os.lseek(descriptor, tail_start, os.SEEK_SET)
+            tail = bytearray()
+            remaining = size - tail_start
+            while remaining > 0:
+                chunk = os.read(descriptor, remaining)
+                if not chunk:
+                    break
+                tail.extend(chunk)
+                remaining -= len(chunk)
+            try:
+                MutationAuditEvent.model_validate_json(bytes(tail))
+            except ValueError:
+                os.ftruncate(descriptor, tail_start)
+                os.fsync(descriptor)
+            else:
+                os.lseek(descriptor, 0, os.SEEK_END)
+                self._write_all(descriptor, b"\n")
+                os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def _outbox_file(self, event_id: UUID, state: str) -> Path:
         return self._outbox_path / f"{event_id}.{state}.json"
@@ -140,16 +187,24 @@ class AuthoritativeAuditStore:
                 )
             ):
                 raise ValueError(f"duplicate audit event id {event.event_id}")
-            descriptor = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+            descriptor, temporary_name = tempfile.mkstemp(
+                dir=self._outbox_path,
+                prefix=f".{event.event_id}.",
+                suffix=".tmp",
+            )
+            temporary = Path(temporary_name)
             try:
-                self._write_all(descriptor, encoded)
-                os.fsync(descriptor)
-            except Exception:
-                pending.unlink(missing_ok=True)
+                try:
+                    os.fchmod(descriptor, 0o640)
+                    self._write_all(descriptor, encoded)
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+                os.replace(temporary, pending)
+                self._fsync_directory(self._outbox_path)
+            except BaseException:
+                temporary.unlink(missing_ok=True)
                 raise
-            finally:
-                os.close(descriptor)
-            self._fsync_directory(self._outbox_path)
         return event.event_id
 
     def discard_terminal(self, event_id: UUID) -> None:

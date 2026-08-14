@@ -179,8 +179,15 @@ def _record_failed_mutation(
             decode_error = underlying
     reported_error = decode_error or underlying
     failure_detail: dict[str, Any] = {"error_type": type(reported_error).__name__}
-    if decode_error is not None and decode_error.digest == resource_id:
-        failure_detail["retained"] = True
+    if action == "source_record.ingested":
+        try:
+            retained = raw_store.exists(resource_id)
+            if retained:
+                raw_store.retrieve(resource_id)
+        except (OSError, ValueError):
+            retained = False
+        if retained:
+            failure_detail["retained"] = True
     _record_mutation_event(
         request,
         actor=actor,
@@ -213,13 +220,7 @@ def _canonical_mutation_succeeded(event: MutationAuditEvent) -> bool:
         expected_digest = event.detail.get("content_digest")
         if not isinstance(expected_digest, str):
             return False
-        latest_cycles = {
-            str(_core._cycle_summary(cycle)["id"]): cycle for cycle in model_catalog._iter_entries()
-        }
-        current = latest_cycles.get(event.resource_id)
-        return current is not None and (
-            sha256_digest(current.model_dump_json().encode("utf-8")) == expected_digest
-        )
+        return model_catalog.contains_mutation(event.event_id, expected_digest)
     if event.action == "source_record.ingested":
         if not raw_store.exists(event.resource_id):
             return False
@@ -261,7 +262,7 @@ def _audited_mutation(
     resource_type: str,
     resource_id: str,
     detail: dict[str, Any],
-) -> Iterator[None]:
+) -> Iterator[uuid.UUID]:
     _record_mutation_event(
         request,
         actor=actor,
@@ -280,7 +281,7 @@ def _audited_mutation(
         detail=detail,
     )
     try:
-        yield
+        yield terminal_event_id
     except Exception as error:
         audit_store.discard_terminal(terminal_event_id)
         _record_failed_mutation(
@@ -423,8 +424,8 @@ def register_model_cycle(request: Request, cycle: ModelGuidanceCycle) -> dict[st
         resource_type="model_cycle",
         resource_id=resource_id,
         detail=detail,
-    ):
-        _core.model_catalog.register(cycle)
+    ) as mutation_id:
+        _core.model_catalog.register(cycle, mutation_id=mutation_id)
     return {**summary, "status": "catalogued"}
 
 

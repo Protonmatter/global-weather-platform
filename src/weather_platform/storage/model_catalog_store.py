@@ -1,8 +1,18 @@
+import json
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
 
 from weather_platform.domain.model_catalog import GuidanceOrigin, ModelGuidanceCycle
+from weather_platform.provenance import sha256_digest
+
+
+@dataclass(frozen=True)
+class _CatalogEntry:
+    mutation_id: UUID | None
+    cycle: ModelGuidanceCycle
 
 
 class ModelGuidanceCatalog:
@@ -18,16 +28,28 @@ class ModelGuidanceCatalog:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def register(self, cycle: ModelGuidanceCycle) -> None:
-        encoded = (cycle.model_dump_json() + "\n").encode("utf-8")
+    def register(self, cycle: ModelGuidanceCycle, *, mutation_id: UUID | None = None) -> None:
+        if mutation_id is None:
+            payload = cycle.model_dump(mode="json")
+        else:
+            payload = {
+                "mutation_id": str(mutation_id),
+                "cycle": cycle.model_dump(mode="json"),
+            }
+        encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
         try:
-            os.write(fd, encoded)
+            offset = 0
+            while offset < len(encoded):
+                written = os.write(fd, encoded[offset:])
+                if written == 0:
+                    raise OSError("model catalog write made no progress")
+                offset += written
             os.fsync(fd)
         finally:
             os.close(fd)
 
-    def _iter_entries(self) -> Iterator[ModelGuidanceCycle]:
+    def _iter_records(self) -> Iterator[_CatalogEntry]:
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as handle:
@@ -35,9 +57,29 @@ class ModelGuidanceCatalog:
                 if not line.strip():
                     continue
                 try:
-                    yield ModelGuidanceCycle.model_validate_json(line)
-                except ValueError as exc:
+                    payload = json.loads(line)
+                    if isinstance(payload, dict) and "mutation_id" in payload:
+                        mutation_id = UUID(str(payload["mutation_id"]))
+                        cycle = ModelGuidanceCycle.model_validate(payload.get("cycle"))
+                    else:
+                        mutation_id = None
+                        cycle = ModelGuidanceCycle.model_validate(payload)
+                    yield _CatalogEntry(mutation_id=mutation_id, cycle=cycle)
+                except (TypeError, ValueError) as exc:
                     raise ValueError(f"invalid model cycle at line {line_number}") from exc
+
+    def _iter_entries(self) -> Iterator[ModelGuidanceCycle]:
+        for record in self._iter_records():
+            yield record.cycle
+
+    def contains_mutation(self, mutation_id: UUID, content_digest: str) -> bool:
+        """Return whether the exact mutation durably appended the expected cycle."""
+
+        return any(
+            record.mutation_id == mutation_id
+            and sha256_digest(record.cycle.model_dump_json().encode("utf-8")) == content_digest
+            for record in self._iter_records()
+        )
 
     def _latest_by_key(self) -> dict[tuple[str, str, str, str], ModelGuidanceCycle]:
         latest: dict[tuple[str, str, str, str], ModelGuidanceCycle] = {}

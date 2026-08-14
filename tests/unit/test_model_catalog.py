@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -10,6 +11,7 @@ from weather_platform.domain.model_catalog import (
     ModelCycleField,
     ModelGuidanceCycle,
 )
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.model_catalog_store import ModelGuidanceCatalog
 
 INIT = datetime(2026, 7, 22, 0, 0, tzinfo=UTC)
@@ -82,3 +84,20 @@ def test_catalog_filters_by_origin(tmp_path: Path) -> None:
     )
     imported = catalog.list(guidance_origin=GuidanceOrigin.IMPORTED)
     assert [c.model_id for c in imported] == ["gfs"]
+
+
+def test_catalog_binds_an_append_to_its_mutation_identity(tmp_path: Path) -> None:
+    catalog = ModelGuidanceCatalog(tmp_path / "model-cycles.jsonl")
+    item = cycle([field()])
+    mutation_id = uuid4()
+
+    catalog.register(item, mutation_id=mutation_id)
+
+    assert catalog.contains_mutation(
+        mutation_id,
+        sha256_digest(item.model_dump_json().encode("utf-8")),
+    )
+    assert not catalog.contains_mutation(
+        uuid4(),
+        sha256_digest(item.model_dump_json().encode("utf-8")),
+    )

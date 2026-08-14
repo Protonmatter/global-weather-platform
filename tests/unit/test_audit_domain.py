@@ -149,6 +149,32 @@ def test_prepare_terminal_rejects_duplicate_prepared_identity(tmp_path, monkeypa
         store.prepare_terminal(succeeded)
 
 
+def test_prepare_terminal_hides_pending_path_until_write_is_complete(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    pending = store._outbox_file(succeeded.event_id, "pending")
+
+    def interrupt_write(descriptor: int, payload: bytes) -> None:
+        assert not pending.exists()
+        os.write(descriptor, payload[: len(payload) // 2])
+        raise OSError("simulated interrupted outbox write")
+
+    monkeypatch.setattr(store, "_write_all", interrupt_write)
+
+    with pytest.raises(OSError, match="interrupted outbox write"):
+        store.prepare_terminal(succeeded)
+
+    assert not pending.exists()
+    assert list(store.pending_events()) == []
+
+
 def test_pending_events_reject_malformed_outbox_entry(tmp_path, monkeypatch) -> None:
     storage = import_module("weather_platform.storage.audit")
     store = audit_store_for_test(storage, tmp_path, monkeypatch)
@@ -189,3 +215,46 @@ def test_commit_terminal_rejects_unknown_identity(tmp_path, monkeypatch) -> None
 
     with pytest.raises(ValueError, match="unknown prepared audit event"):
         store.commit_terminal(uuid4())
+
+
+def test_restart_repairs_only_an_incomplete_final_ledger_event(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    first = valid_event(domain)
+    second = valid_event(domain)
+    store.append(first)
+    with store.path.open("ab") as handle:
+        encoded = (second.model_dump_json() + "\n").encode("utf-8")
+        handle.write(encoded[: len(encoded) // 2])
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    restarted = audit_store_for_test(storage, tmp_path, monkeypatch)
+
+    assert list(restarted.iter_events()) == [first]
+    restarted.append(second)
+    assert {event.event_id for event in restarted.iter_events()} == {
+        first.event_id,
+        second.event_id,
+    }
+
+
+def test_restart_preserves_a_complete_final_event_missing_its_newline(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    first = valid_event(domain)
+    second = valid_event(domain)
+    store.path.write_bytes(first.model_dump_json().encode("utf-8"))
+
+    restarted = audit_store_for_test(storage, tmp_path, monkeypatch)
+    restarted.append(second)
+
+    assert {event.event_id for event in restarted.iter_events()} == {
+        first.event_id,
+        second.event_id,
+    }
