@@ -93,3 +93,31 @@ def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch
     store.commit_terminal(terminal_id)
 
     assert list(store.iter_events()) == [attempted, succeeded]
+
+
+def test_pending_success_reconciles_after_process_restart(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(
+            storage.AuthoritativeAuditStore,
+            "_fsync_directory",
+            staticmethod(lambda _path: None),
+        )
+    audit_path = tmp_path / "mutation-audit.jsonl"
+    store = storage.AuthoritativeAuditStore(audit_path)
+    attempted = valid_event(domain)
+    succeeded = attempted.model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": domain.MutationResult.SUCCEEDED,
+        }
+    )
+    store.append(attempted)
+    store.prepare_terminal(succeeded)
+
+    restarted = storage.AuthoritativeAuditStore(audit_path)
+    restarted.reconcile_pending(lambda event: event.resource_id == succeeded.resource_id)
+
+    assert list(restarted.iter_events()) == [attempted, succeeded]
+    assert not list(restarted.pending_events())

@@ -1,7 +1,7 @@
 import fcntl
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
@@ -80,6 +80,31 @@ class AuthoritativeAuditStore:
     def _iter_committed_events(self) -> Iterator[MutationAuditEvent]:
         for path in sorted(self._outbox_path.glob("*.committed.json")):
             yield self._read_outbox_event(path)
+
+    def pending_events(self) -> Iterator[MutationAuditEvent]:
+        """Return a stable snapshot of successes awaiting state reconciliation."""
+
+        with self._transaction():
+            snapshot = [
+                self._read_outbox_event(path)
+                for path in sorted(self._outbox_path.glob("*.pending.json"))
+            ]
+        yield from snapshot
+
+    def reconcile_pending(
+        self,
+        canonical_state_contains: Callable[[MutationAuditEvent], bool],
+    ) -> None:
+        """Commit prepared successes proven present in canonical state.
+
+        A false result is intentionally inconclusive: the pending entry remains
+        durable for a later recovery pass rather than being converted into a
+        false success or discarded without evidence.
+        """
+
+        for event in self.pending_events():
+            if canonical_state_contains(event):
+                self.commit_terminal(event.event_id)
 
     def append(self, event: MutationAuditEvent) -> None:
         encoded = (event.model_dump_json() + "\n").encode("utf-8")

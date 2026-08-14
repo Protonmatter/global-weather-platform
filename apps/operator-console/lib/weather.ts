@@ -180,7 +180,9 @@ export function safeUpstreamResponseHeaders(source: Headers) {
     if (value !== null) safe.set(name, value);
   }
   const location = source.get("location");
-  if (location?.startsWith("/")) safe.set("location", location);
+  if (location !== null && (location === "/" || /^\/[^/\\]/.test(location))) {
+    safe.set("location", location);
+  }
   return safe;
 }
 

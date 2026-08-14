@@ -1,3 +1,5 @@
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -5,7 +7,13 @@ from fastapi.testclient import TestClient
 
 from weather_platform.api import main
 from weather_platform.config import Settings
-from weather_platform.domain.audit import MutationResult
+from weather_platform.domain.audit import MutationAuditEvent, MutationResult
+from weather_platform.domain.model_catalog import (
+    GuidanceOrigin,
+    ModelCycleField,
+    ModelGuidanceCycle,
+)
+from weather_platform.domain.models import Observation
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.audit import AuthoritativeAuditStore
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -127,6 +135,141 @@ def test_terminal_audit_append_failure_preserves_authoritative_success(
         MutationResult.ATTEMPTED,
         MutationResult.SUCCEEDED,
     ]
+
+
+def test_restart_reconciles_success_committed_before_terminal_audit(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = b"restart recovery evidence"
+    digest = sha256_digest(payload)
+    monkeypatch.setattr(main.audit_store, "commit_terminal", lambda _event_id: None)
+
+    response = client.put(f"/v1/source-records/{digest}", content=payload)
+
+    assert response.status_code == 201
+    assert [event.result for event in main.audit_store.iter_events()] == [MutationResult.ATTEMPTED]
+    main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
+    main._reconcile_pending_audit()
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.SUCCEEDED,
+    ]
+
+
+def test_restart_does_not_publish_conflicting_observation_as_success(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    record = json.loads(
+        (Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json").read_text()
+    )
+    expected = Observation.model_validate(record)
+    conflicting = expected.model_copy(update={"value": 280.0})
+    main.store.append(conflicting)
+    request_id = uuid4()
+    attempted = MutationAuditEvent(
+        event_id=uuid4(),
+        request_id=request_id,
+        actor="operator@example.invalid",
+        action="observation.admitted",
+        resource_type="observation",
+        resource_id=str(expected.observation_id),
+        result=MutationResult.ATTEMPTED,
+        occurred_at=datetime.now(UTC),
+        software_version=main.__version__,
+        detail={"phenomenon": expected.phenomenon},
+    )
+    succeeded = attempted.model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": MutationResult.SUCCEEDED,
+            "detail": {
+                "phenomenon": expected.phenomenon,
+                "content_digest": sha256_digest(expected.model_dump_json().encode()),
+            },
+        }
+    )
+    main.audit_store.append(attempted)
+    main.audit_store.prepare_terminal(succeeded)
+
+    main._reconcile_pending_audit()
+
+    assert list(main.audit_store.iter_events()) == [attempted]
+    assert list(main.audit_store.pending_events()) == [succeeded]
+
+
+def test_restart_checks_latest_model_cycle_state_before_publishing_success(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    field = ModelCycleField(
+        variable="air_temperature",
+        level_type="surface",
+        grid="global-0.25-degree",
+        lead_hours=0,
+    )
+    expected = ModelGuidanceCycle(
+        model_id="gfs",
+        model_version="v16",
+        guidance_origin=GuidanceOrigin.IMPORTED,
+        initialized_at=datetime(2026, 8, 13, tzinfo=UTC),
+        source_revision="revision-1",
+        grids=[field.grid],
+        expected_fields=[field],
+        available_fields=[field],
+    )
+    conflicting_latest = expected.model_copy(update={"available_fields": []})
+    main.model_catalog.register(expected)
+    main.model_catalog.register(conflicting_latest)
+    resource_id = str(main._core._cycle_summary(expected)["id"])
+    attempted = MutationAuditEvent(
+        event_id=uuid4(),
+        request_id=uuid4(),
+        actor="operator@example.invalid",
+        action="model_cycle.catalogued",
+        resource_type="model_cycle",
+        resource_id=resource_id,
+        result=MutationResult.ATTEMPTED,
+        occurred_at=datetime.now(UTC),
+        software_version=main.__version__,
+        detail={"guidance_origin": GuidanceOrigin.IMPORTED.value},
+    )
+    succeeded = attempted.model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": MutationResult.SUCCEEDED,
+            "detail": {
+                "guidance_origin": GuidanceOrigin.IMPORTED.value,
+                "content_digest": sha256_digest(expected.model_dump_json().encode()),
+            },
+        }
+    )
+    main.audit_store.append(attempted)
+    main.audit_store.prepare_terminal(succeeded)
+
+    main._reconcile_pending_audit()
+
+    assert list(main.audit_store.iter_events()) == [attempted]
+    assert list(main.audit_store.pending_events()) == [succeeded]
+
+
+def test_decode_failure_audits_retained_source_evidence(tmp_path, monkeypatch) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = b"not a decodable observation"
+    digest = sha256_digest(payload)
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 422
+    assert main.raw_store.retrieve(digest) == payload
+    attempted, failed = main.audit_store.iter_events()
+    assert attempted.result == MutationResult.ATTEMPTED
+    assert failed.result == MutationResult.FAILED
+    assert failed.detail == {
+        "error_type": "SourceDecodeError",
+        "retained": True,
+    }
 
 
 def test_raw_evidence_read_requires_service_identity_in_production(

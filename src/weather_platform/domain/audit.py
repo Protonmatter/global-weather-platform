@@ -13,6 +13,7 @@ _ALLOWED_DETAIL_KEYS = frozenset(
         "guidance_origin",
         "phenomenon",
         "quality_disposition",
+        "retained",
         "source_digest",
     }
 )

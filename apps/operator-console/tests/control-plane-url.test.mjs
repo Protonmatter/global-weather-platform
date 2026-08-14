@@ -95,3 +95,19 @@ test("upstream response forwarding uses an explicit safe header set", () => {
   assert.equal(safe.get("set-cookie"), null);
   assert.equal(safe.get("x-internal-debug"), null);
 });
+
+test("upstream response forwarding rejects network-path redirects", () => {
+  const safe = safeUpstreamResponseHeaders(
+    new Headers({ location: "//attacker.example/path" }),
+  );
+  const backslash = safeUpstreamResponseHeaders(
+    new Headers({ location: "/\\attacker.example/path" }),
+  );
+  const relative = safeUpstreamResponseHeaders(
+    new Headers({ location: "/v1/observations" }),
+  );
+
+  assert.equal(safe.get("location"), null);
+  assert.equal(backslash.get("location"), null);
+  assert.equal(relative.get("location"), "/v1/observations");
+});

@@ -21,7 +21,7 @@ CONTROL_PLANE_TOKEN=<same minimum-32-character value as WEATHER_CONTROL_PLANE_TO
 - use a DNS hostname rather than an IP literal;
 - exactly match, or be a subdomain of, one entry in the comma-separated `CONTROL_PLANE_ALLOWED_HOSTS` list.
 
-The destination is validated before the BFF attaches the bearer credential. Responses are reconstructed using an explicit safe header set; cookies and internal/debug headers are not forwarded.
+The destination is validated before the BFF attaches the bearer credential. Responses are reconstructed using an explicit safe header set; cookies and internal/debug headers are not forwarded, and redirect locations are limited to same-origin path references with exactly one leading slash.
 
 The local Vite configuration injects `CONTROL_PLANE_MODE=local-development`. In that mode, HTTP is allowed only for `localhost`, `127.0.0.1`, or `::1`. Do not configure `local-development` on a deployed Site.
 

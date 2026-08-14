@@ -21,6 +21,7 @@ from weather_platform.config import Settings
 from weather_platform.domain.audit import MutationAuditEvent, MutationResult
 from weather_platform.domain.model_catalog import ModelGuidanceCycle
 from weather_platform.domain.models import Observation
+from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.audit import AuthoritativeAuditStore
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -168,6 +169,18 @@ def _record_failed_mutation(
     resource_id: str,
     error: Exception,
 ) -> None:
+    underlying: BaseException = error
+    decode_error: SourceDecodeError | None = None
+    if isinstance(underlying, SourceDecodeError):
+        decode_error = underlying
+    while underlying.__cause__ is not None:
+        underlying = underlying.__cause__
+        if isinstance(underlying, SourceDecodeError):
+            decode_error = underlying
+    reported_error = decode_error or underlying
+    failure_detail: dict[str, Any] = {"error_type": type(reported_error).__name__}
+    if decode_error is not None and decode_error.digest == resource_id:
+        failure_detail["retained"] = True
     _record_mutation_event(
         request,
         actor=actor,
@@ -175,8 +188,68 @@ def _record_failed_mutation(
         resource_type=resource_type,
         resource_id=resource_id,
         result=MutationResult.FAILED,
-        detail={"error_type": type(error).__name__},
+        detail=failure_detail,
     )
+
+
+def _canonical_mutation_succeeded(event: MutationAuditEvent) -> bool:
+    """Return true only when canonical storage proves a prepared success."""
+
+    if event.action == "source_record.retained":
+        if not raw_store.exists(event.resource_id):
+            return False
+        raw_store.retrieve(event.resource_id)
+        return True
+    if event.action == "observation.admitted":
+        expected_digest = event.detail.get("content_digest")
+        if not isinstance(expected_digest, str):
+            return False
+        return any(
+            str(observation.observation_id) == event.resource_id
+            and sha256_digest(observation.model_dump_json().encode("utf-8")) == expected_digest
+            for observation in store.iter_observations()
+        )
+    if event.action == "model_cycle.catalogued":
+        expected_digest = event.detail.get("content_digest")
+        if not isinstance(expected_digest, str):
+            return False
+        latest_cycles = {
+            str(_core._cycle_summary(cycle)["id"]): cycle for cycle in model_catalog._iter_entries()
+        }
+        current = latest_cycles.get(event.resource_id)
+        return current is not None and (
+            sha256_digest(current.model_dump_json().encode("utf-8")) == expected_digest
+        )
+    if event.action == "source_record.ingested":
+        if not raw_store.exists(event.resource_id):
+            return False
+        try:
+            result = ingest_source_record(
+                raw_store.retrieve(event.resource_id),
+                adapter=adapter,
+                raw_store=raw_store,
+            )
+        except SourceDecodeError:
+            return False
+        expected = [
+            _core._with_platform_verification(observation) for observation in result.observations
+        ]
+        if any(observation.quality_disposition.value == "reject" for observation in expected):
+            return False
+        existing = {
+            observation.observation_id: observation for observation in store.iter_observations()
+        }
+        return all(
+            observation.observation_id in existing
+            and _core._observation_content(existing[observation.observation_id])
+            == _core._observation_content(observation)
+            for observation in expected
+        )
+    return False
+
+
+def _reconcile_pending_audit() -> None:
+    audit_store.reconcile_pending(_canonical_mutation_succeeded)
 
 
 @contextmanager
@@ -248,9 +321,11 @@ for _path, _method in (
 def create_observation(request: Request, observation: Observation) -> dict[str, str]:
     actor = _core._require_mutation_authorization(request)
     resource_id = str(observation.observation_id)
+    admitted = _core._with_platform_verification(observation)
     detail = {
         "phenomenon": observation.phenomenon,
         "quality_disposition": observation.quality_disposition.value,
+        "content_digest": sha256_digest(admitted.model_dump_json().encode("utf-8")),
     }
     with _audited_mutation(
         request,
@@ -266,7 +341,6 @@ def create_observation(request: Request, observation: Observation) -> dict[str, 
                 detail="rejected observations cannot enter the canonical store",
             )
         _core._require_retained_source(observation.provenance.source_record_digest)
-        admitted = _core._with_platform_verification(observation)
         _core._admit_observations([admitted])
     return {"observation_id": resource_id, "status": "accepted"}
 
@@ -339,6 +413,7 @@ def register_model_cycle(request: Request, cycle: ModelGuidanceCycle) -> dict[st
     resource_id = str(summary["id"])
     detail = {
         "completeness": str(summary["completeness"]),
+        "content_digest": sha256_digest(cycle.model_dump_json().encode("utf-8")),
         "guidance_origin": cycle.guidance_origin.value,
     }
     with _audited_mutation(
@@ -354,4 +429,5 @@ def register_model_cycle(request: Request, cycle: ModelGuidanceCycle) -> dict[st
 
 
 app.openapi_schema = None
+_reconcile_pending_audit()
 run = _core.run
