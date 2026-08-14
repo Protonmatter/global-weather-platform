@@ -1,0 +1,22 @@
+name: continuous-delivery
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: continuous-delivery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  continuous-integration:
+    uses: ./.github/workflows/continuous-integration.yml
+  immutable-release:
+    needs: continuous-integration
+    uses: ./.github/workflows/build-image.yml
+

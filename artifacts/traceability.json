@@ -500,6 +500,64 @@
         "WCAG-2.2-AA"
       ],
       "status": "review"
+    },
+    {
+      "path": "specs/validation/SPEC-820-software-delivery.md",
+      "requirements": [
+        {
+          "id": "DEL-SPEC-0001",
+          "priority": "critical",
+          "release_gate": "governance",
+          "statement": "Every production change MUST trace normative requirements to repository-resident verification evidence before release construction.",
+          "verification": [
+            "TEST-DELIVERY-0001"
+          ]
+        },
+        {
+          "id": "DEL-CI-0002",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "The continuous integration gate MUST validate specifications, dependency integrity, Python quality, operator-console quality, contracts, scientific invariants, integration paths, and end-to-end behavior for the exact candidate revision.",
+          "verification": [
+            "TEST-DELIVERY-0002"
+          ]
+        },
+        {
+          "id": "DEL-END-0003",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "End-to-end verification MUST cross the built operator-console worker, authenticated control-plane HTTP boundary, canonical persistence, read API, and authoritative audit ledger without live provider dependencies.",
+          "verification": [
+            "TEST-E2E-0001"
+          ]
+        },
+        {
+          "id": "DEL-CD-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Release construction MUST depend on a successful complete continuous integration gate for the same Git commit and MUST emit immutable signed release evidence before any environment promotion.",
+          "verification": [
+            "TEST-DELIVERY-0003"
+          ]
+        },
+        {
+          "id": "DEL-DEP-0005",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.",
+          "verification": [
+            "TEST-DEPS-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-820",
+      "standards": [
+        "RFC-2119",
+        "RFC-8174",
+        "NIST-SSDF-1.1",
+        "SLSA-1.0"
+      ],
+      "status": "implemented"
     }
   ],
   "verifications": {
@@ -537,9 +595,52 @@
       "notes": "Persistent atomic replacement of the currently served usable cycle awaits the production model-asset catalog and serving alias implementation.",
       "status": "planned"
     },
+    "TEST-DELIVERY-0001": {
+      "evidence": [
+        "scripts/validate_specs.py",
+        "scripts/validate_pr_requirements.py",
+        "scripts/generate_traceability.py",
+        "tests/unit/test_spec_tools.py",
+        "tests/unit/test_pr_requirements.py",
+        "artifacts/traceability.json"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DELIVERY-0002": {
+      "evidence": [
+        ".github/workflows/continuous-integration.yml",
+        ".github/workflows/end-to-end.yml",
+        "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DELIVERY-0003": {
+      "evidence": [
+        ".github/workflows/continuous-delivery.yml",
+        ".github/workflows/build-image.yml",
+        "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
     "TEST-DEPLOY-0001": {
       "evidence": [
         "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DEPS-0001": {
+      "evidence": [
+        "scripts/validate_dependency_policy.py",
+        "tests/contract/test_dependency_policy.py",
+        ".github/dependabot.yml",
+        ".github/workflows/python-lock.yml"
+      ],
+      "status": "implemented"
+    },
+    "TEST-E2E-0001": {
+      "evidence": [
+        "apps/operator-console/tests/control-plane.e2e.test.mjs",
+        ".github/workflows/end-to-end.yml"
       ],
       "status": "implemented"
     },

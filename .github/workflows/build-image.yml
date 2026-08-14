@@ -1,17 +1,19 @@
 name: build-image
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: [self-hosted, linux, weather-build]
+    environment: release
     timeout-minutes: 30
     steps:
       - name: Checkout

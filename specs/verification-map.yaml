@@ -7,6 +7,39 @@
 # reference implemented verifications. scripts/validate_specs.py enforces all
 # of this.
 verifications:
+  TEST-DELIVERY-0001:
+    status: implemented
+    evidence:
+      - scripts/validate_specs.py
+      - scripts/validate_pr_requirements.py
+      - scripts/generate_traceability.py
+      - tests/unit/test_spec_tools.py
+      - tests/unit/test_pr_requirements.py
+      - artifacts/traceability.json
+  TEST-DELIVERY-0002:
+    status: implemented
+    evidence:
+      - .github/workflows/continuous-integration.yml
+      - .github/workflows/end-to-end.yml
+      - tests/contract/test_weather_deployment_policy.py
+  TEST-E2E-0001:
+    status: implemented
+    evidence:
+      - apps/operator-console/tests/control-plane.e2e.test.mjs
+      - .github/workflows/end-to-end.yml
+  TEST-DELIVERY-0003:
+    status: implemented
+    evidence:
+      - .github/workflows/continuous-delivery.yml
+      - .github/workflows/build-image.yml
+      - tests/contract/test_weather_deployment_policy.py
+  TEST-DEPS-0001:
+    status: implemented
+    evidence:
+      - scripts/validate_dependency_policy.py
+      - tests/contract/test_dependency_policy.py
+      - .github/dependabot.yml
+      - .github/workflows/python-lock.yml
   TEST-CONTRACT-0001:
     status: implemented
     evidence:

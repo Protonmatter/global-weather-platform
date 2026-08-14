@@ -172,6 +172,48 @@ def test_release_workflow_binds_evidence_to_the_built_repository() -> None:
     assert "${{ vars.INTERNAL_REGISTRY }}/weather/platform" in render_step["run"]
 
 
+def test_continuous_delivery_requires_the_complete_ci_gate() -> None:
+    integration = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-integration.yml").read_text("utf-8")
+    )
+    called_workflows = {job["uses"] for job in integration["jobs"].values() if "uses" in job}
+    assert called_workflows == {
+        "./.github/workflows/ci-bootstrap.yml",
+        "./.github/workflows/end-to-end.yml",
+        "./.github/workflows/operator-console.yml",
+        "./.github/workflows/pr-fast.yml",
+        "./.github/workflows/python-lock.yml",
+        "./.github/workflows/schema-contract.yml",
+        "./.github/workflows/scientific-validation.yml",
+        "./.github/workflows/spec-validation.yml",
+        "./.github/workflows/weather-contract.yml",
+        "./.github/workflows/weather-integration.yml",
+    }
+
+    delivery = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-delivery.yml").read_text("utf-8")
+    )
+    release = delivery["jobs"]["immutable-release"]
+    assert release["needs"] == "continuous-integration"
+    assert release["uses"] == "./.github/workflows/build-image.yml"
+
+    image = yaml.safe_load((ROOT / ".github/workflows/build-image.yml").read_text("utf-8"))
+    triggers = image.get("on", image.get(True))
+    assert triggers == {"workflow_call": None}
+    assert image["jobs"]["build"]["environment"] == "release"
+
+
+def test_end_to_end_workflow_uses_pinned_graphs_and_built_worker() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/end-to-end.yml").read_text("utf-8"))
+    steps = workflow["jobs"]["verify"]["steps"]
+    commands = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "--require-hashes" in commands
+    assert "requirements/ci.lock" in commands
+    assert "npm run install:ci" in commands
+    assert "npm run build" in commands
+    assert "tests/control-plane.e2e.test.mjs" in commands
+
+
 def test_integration_workflow_installs_from_the_checked_lock() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/weather-integration.yml").read_text("utf-8")

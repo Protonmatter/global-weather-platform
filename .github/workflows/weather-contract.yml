@@ -1,6 +1,7 @@
 name: weather-contract
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'src/weather_platform/acquisition/**'
@@ -54,7 +55,7 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
           cache: pip
           cache-dependency-path: requirements/ci.lock
       - name: Create isolated environment

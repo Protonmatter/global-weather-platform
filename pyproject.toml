@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "global-weather-platform"
 version = "0.1.0"
 description = "Spec-driven control plane for a global probabilistic weather platform"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
   "fastapi>=0.115,<1",
@@ -51,6 +51,7 @@ markers = [
   "scientific: physical, geographic, temporal, and probabilistic invariants",
   "integration: multi-component fixture-driven integration paths",
   "regression: immutable reproductions of confirmed defects or adversarial failures",
+  "e2e: process-boundary verification of built delivery artifacts",
 ]
 
 [tool.ruff]

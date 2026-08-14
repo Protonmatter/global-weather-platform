@@ -10,16 +10,29 @@ they require internal registries, signing policy, or security tooling.
 
 | Workflow | Runner | Triggers | Required configuration |
 | --- | --- | --- | --- |
+| `continuous-delivery.yml` | reusable hosted lanes, then `weather-build` | push to `main`, `v*` tags, manual | complete CI must pass for the exact revision before the release job is eligible |
+| `continuous-integration.yml` | reusable GitHub-hosted lanes | called by continuous delivery | fans out every specification, dependency, Python, console, contract, scientific, integration, and end-to-end gate |
+| `end-to-end.yml` | GitHub-hosted `ubuntu-latest` | relevant PRs, called by continuous integration | built console Worker, production FastAPI subprocess, locked Python/npm graphs |
+| `pr-spec-gate.yml` | GitHub-hosted `ubuntu-latest` | PR open, edit, synchronization, reopen | PR body must name the governing specification and normative requirement IDs |
 | `ci-bootstrap.yml` | GitHub-hosted `ubuntu-latest` | PR, push to `main` | none; uses locked project requirements from public PyPI |
 | `pr-fast.yml` | GitHub-hosted `ubuntu-latest` | PR, push to `main` | none; installs the hash-checked CI lock and the project without dependency resolution |
 | `spec-validation.yml` | GitHub-hosted `ubuntu-latest` | PR touching specifications, push to `main` | none |
 | `operator-console.yml` | GitHub-hosted `ubuntu-latest` | operator-console PR/push changes | none; uses the committed npm lockfile |
-| `build-image.yml` | `self-hosted, linux, weather-build` | push to `main`, `v*` tags, manual | internal registry/base-image/mirror variables, release attestation command, Docker |
+| `build-image.yml` | `self-hosted, linux, weather-build` | reusable call after complete CI | protected `release` environment, internal registry/base-image/mirror variables, release attestation command, Docker |
 | `security-deep.yml` | `self-hosted, linux, weather-security` | weekly schedule, manual | internal security command |
 
-The hosted jobs pin checkout and setup actions by commit, select Python 3.12 or
-Node.js 22.13.1 explicitly, and use committed dependency constraints. They do
+The hosted jobs pin checkout and setup actions by commit, select the exact
+Python and Node.js patch releases declared in `.python-version` and
+`apps/operator-console/.nvmrc`, and use committed dependency constraints. They do
 not receive production deployment credentials.
+
+`continuous-delivery.yml` is the only automatic entry into release image
+construction. It calls the complete reusable CI fan-out first and calls
+`build-image.yml` only after every lane succeeds for the same Git revision.
+The build job is also bound to the `release` GitHub environment so repository
+environment protection can require approval. The workflow delivers immutable,
+scanned, signed, attested evidence; it does not activate the intentionally
+scaled-to-zero acquisition workload.
 
 ## Registering privileged runners
 
@@ -70,6 +83,21 @@ The runner environment, rather than repository variables, supplies:
 
 Both privileged jobs fail closed when their required configuration is absent.
 
+## Dependency version handling
+
+- Python manifests use bounded compatibility ranges; `production.lock` and
+  `ci.lock` contain the exact SHA-256-checked resolution.
+- Operator-console direct dependencies are exact and `package-lock.json`
+  preserves registry SHA-512 integrity values.
+- `.python-version`, `apps/operator-console/.nvmrc`, and immutable GitHub
+  Action commit references pin build runtimes and automation code.
+- Dependabot checks pip, npm, GitHub Actions, and Docker weekly. Minor and patch
+  changes are grouped by ecosystem; major changes require deliberate spec and
+  compatibility work.
+- `make dependency-policy` fails on unbounded manifests, stale or unhashed
+  locks, non-exact JavaScript dependencies, mutable actions, or missing update
+  coverage.
+
 ## Verifying locally
 
 ```bash
@@ -83,4 +111,5 @@ npm ci
 npm run lint
 npm run typecheck
 npm test
+PYTHON_BIN="$PWD/../../.venv/bin/python" npm run test:e2e
 ```

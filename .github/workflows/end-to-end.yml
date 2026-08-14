@@ -1,0 +1,80 @@
+name: end-to-end
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'apps/operator-console/**'
+      - 'requirements/ci.lock'
+      - 'pyproject.toml'
+      - 'specs/**'
+      - 'scripts/validate_dependency_policy.py'
+      - '.github/dependabot.yml'
+      - '.github/workflows/end-to-end.yml'
+      - '.github/workflows/continuous-integration.yml'
+      - '.github/workflows/continuous-delivery.yml'
+      - '.github/workflows/build-image.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: end-to-end-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+          cache-dependency-path: requirements/ci.lock
+      - name: Install hash-pinned Python graph
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/ci.lock
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --no-build-isolation \
+            --no-deps \
+            --editable .
+      - name: Validate specifications and dependency policy
+        run: PATH="$PWD/.venv/bin:$PATH" make validate
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: apps/operator-console/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/operator-console/package-lock.json
+      - name: Install locked operator-console graph
+        working-directory: apps/operator-console
+        run: npm run install:ci
+      - name: Build deployable operator-console worker
+        working-directory: apps/operator-console
+        run: npm run build
+      - name: Run process-boundary end-to-end verification
+        working-directory: apps/operator-console
+        env:
+          PYTHON_BIN: ${{ github.workspace }}/.venv/bin/python
+        run: |
+          mkdir -p ../../artifacts
+          node --test --test-reporter=junit tests/control-plane.e2e.test.mjs \
+            > ../../artifacts/end-to-end-junit.xml
+      - name: Upload end-to-end evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: end-to-end-${{ github.sha }}
+          path: artifacts/end-to-end-junit.xml
+          if-no-files-found: error
+          retention-days: 30

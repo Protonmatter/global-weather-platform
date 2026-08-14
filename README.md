@@ -19,7 +19,7 @@ The repository currently implements:
 - baseline probabilistic verification functions;
 - deny-by-default production network policy and a separate acquisition trust zone;
 - hash-pinned Python dependency locks and digest-bound release rendering;
-- CI gates for specifications, schemas, scientific invariants, integration paths, regression tests, security, and release evidence.
+- a complete CI/CD fan-out for specifications, dependency integrity, Python and console quality, schemas, scientific invariants, integration, process-boundary end-to-end behavior, security, and immutable release evidence.
 
 ## Current scope
 
@@ -75,6 +75,12 @@ Production mutations and raw-source retrieval require both the control-plane bea
 
 `requirements/production.lock` and `requirements/ci.lock` are generated with Python 3.12 and the pinned compiler declared in `.github/workflows/python-lock.yml`. Both files contain package hashes. The lock workflow regenerates them and fails when checked files differ.
 
+Python and Node.js build patches are pinned in `.python-version` and
+`apps/operator-console/.nvmrc`. Operator-console direct dependencies are exact,
+and Dependabot evaluates pip, npm, GitHub Actions, and Docker updates weekly.
+`make dependency-policy` validates all manifest, lock, runtime, automation, and
+update-policy invariants.
+
 Regenerate locally with:
 
 ```bash
@@ -90,9 +96,10 @@ make schema-contract
 make scientific-validation
 make weather-integration
 make weather-regression
+make e2e
 ```
 
-The focused targets use deterministic fixtures and do not call live weather providers. `make test` remains the complete branch-coverage gate.
+The focused targets use deterministic fixtures and do not call live weather providers. `make e2e` builds the operator-console Worker and traverses it through a production-configured FastAPI subprocess and durable local stores. `make test` remains the complete branch-coverage gate.
 
 ## Engineering rules
 
