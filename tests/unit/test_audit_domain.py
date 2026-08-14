@@ -295,6 +295,20 @@ def test_failure_replaces_prepared_success_before_ledger_append(
     assert not list(store.pending_events())
 
 
+def test_discard_terminal_removes_a_prepared_success(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+
+    store.discard_terminal(terminal_id)
+
+    assert not list(store.pending_events())
+
+
 def test_commit_terminal_rejects_unknown_identity(tmp_path, monkeypatch) -> None:
     storage = import_module("weather_platform.storage.audit")
     store = audit_store_for_test(storage, tmp_path, monkeypatch)

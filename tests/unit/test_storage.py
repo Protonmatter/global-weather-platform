@@ -100,3 +100,108 @@ def test_ingestion_marker_verifies_the_original_canonical_output(
         mutation_id,
         sha256_digest(b"different source"),
     )
+
+
+def test_ingestion_marker_redelivery_is_idempotent_and_conflicts_fail_closed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import pytest
+
+    store = JsonlObservationStore(tmp_path / "observations.jsonl")
+    observation = load_observation()
+    mutation_id = uuid4()
+    source_digest = observation.provenance.source_record_digest
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(store, "_fsync_directory", lambda _path: None)
+
+    store.record_ingestion_mutation(
+        mutation_id,
+        source_digest=source_digest,
+        observations=[observation],
+    )
+    store.record_ingestion_mutation(
+        mutation_id,
+        source_digest=source_digest,
+        observations=[observation],
+    )
+
+    with pytest.raises(ValueError, match="conflicting ingestion marker"):
+        store.record_ingestion_mutation(
+            mutation_id,
+            source_digest=sha256_digest(b"different source"),
+            observations=[observation],
+        )
+
+
+def test_ingestion_marker_rejects_malformed_existing_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import pytest
+
+    store = JsonlObservationStore(tmp_path / "observations.jsonl")
+    observation = load_observation()
+    mutation_id = uuid4()
+    source_digest = observation.provenance.source_record_digest
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(store, "_fsync_directory", lambda _path: None)
+    marker = store._ingestion_marker(mutation_id)
+    marker.write_text("not-json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid ingestion marker"):
+        store.record_ingestion_mutation(
+            mutation_id,
+            source_digest=source_digest,
+            observations=[observation],
+        )
+
+    marker.write_text(
+        json.dumps(
+            {
+                "mutation_id": str(mutation_id),
+                "source_record_digest": source_digest,
+                "observations": [{"observation_id": str(observation.observation_id)}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert not store.contains_ingestion_mutation(mutation_id, source_digest)
+
+    marker.write_text("not-json", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid ingestion marker"):
+        store.contains_ingestion_mutation(mutation_id, source_digest)
+
+
+def test_ingestion_marker_publish_failure_removes_the_temporary_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import pytest
+
+    store = JsonlObservationStore(tmp_path / "observations.jsonl")
+    observation = load_observation()
+    mutation_id = uuid4()
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(store, "_fsync_directory", lambda _path: None)
+
+    def fail_replace(_source, _destination) -> None:
+        raise OSError("simulated marker publish failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="marker publish failure"):
+        store.record_ingestion_mutation(
+            mutation_id,
+            source_digest=observation.provenance.source_record_digest,
+            observations=[observation],
+        )
+
+    assert list(store._ingestion_path.iterdir()) == []
+
+
+def test_observation_replay_ignores_blank_lines(tmp_path: Path) -> None:
+    observation = load_observation()
+    path = tmp_path / "observations.jsonl"
+    path.write_text(f"\n{observation.model_dump_json()}\n", encoding="utf-8")
+
+    assert list(JsonlObservationStore(path).iter_observations()) == [observation]
