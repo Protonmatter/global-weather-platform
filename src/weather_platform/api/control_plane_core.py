@@ -197,7 +197,12 @@ def _with_platform_verification(observation: Observation) -> Observation:
     return observation.model_copy(update={"provenance": provenance})
 
 
-def _admit_observations(observations: list[Observation]) -> None:
+def _admit_observations(
+    observations: list[Observation],
+    *,
+    mutation_id: uuid.UUID | None = None,
+    source_record_digest: str | None = None,
+) -> None:
     # A redelivery with identical content is skipped; a differing record under
     # an existing id is a conflict, never a silent drop. The whole batch is
     # conflict-checked before any append so a rejected source record never
@@ -208,11 +213,13 @@ def _admit_observations(observations: list[Observation]) -> None:
             observation.observation_id: observation for observation in store.iter_observations()
         }
         to_append: list[Observation] = []
+        canonical_observations: list[Observation] = []
         for observation in observations:
             current = existing.get(observation.observation_id)
             if current is None:
                 existing[observation.observation_id] = observation
                 to_append.append(observation)
+                canonical_observations.append(observation)
             elif _observation_content(current) != _observation_content(observation):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -221,8 +228,21 @@ def _admit_observations(observations: list[Observation]) -> None:
                         f"an existing canonical record"
                     ),
                 )
+            else:
+                canonical_observations.append(current)
         for observation in to_append:
             store.append(observation)
+        if mutation_id is not None:
+            if source_record_digest is None:
+                raise ValueError("an ingestion mutation requires its source record digest")
+            # Publish request-specific completion evidence only after every
+            # canonical append succeeds. Otherwise a later redelivery could
+            # make an incomplete earlier request appear to have committed.
+            store.record_ingestion_mutation(
+                mutation_id,
+                source_digest=source_record_digest,
+                observations=canonical_observations,
+            )
 
 
 def _require_retained_source(digest: str) -> None:
@@ -250,7 +270,11 @@ def create_observation(request: Request, observation: Observation) -> dict[str, 
     return {"observation_id": str(observation.observation_id), "status": "accepted"}
 
 
-def _ingest_and_store(payload: bytes) -> dict[str, Any]:
+def _ingest_and_store(
+    payload: bytes,
+    *,
+    mutation_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
     try:
         result = ingest_source_record(payload, adapter=adapter, raw_store=raw_store)
     except SourceDecodeError as exc:
@@ -263,7 +287,11 @@ def _ingest_and_store(payload: bytes) -> dict[str, Any]:
             status_code=422,
             detail="rejected observations cannot enter the canonical store",
         )
-    _admit_observations(observations)
+    _admit_observations(
+        observations,
+        mutation_id=mutation_id,
+        source_record_digest=result.source_record_digest,
+    )
     return {
         "source_record_digest": result.source_record_digest,
         "observation_ids": [str(observation.observation_id) for observation in observations],

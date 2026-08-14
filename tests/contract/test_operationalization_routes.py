@@ -1,9 +1,11 @@
 import json
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from weather_platform.api import main
@@ -15,6 +17,7 @@ from weather_platform.domain.model_catalog import (
     ModelGuidanceCycle,
 )
 from weather_platform.domain.models import Observation
+from weather_platform.ingestion.pipeline import ingest_source_record
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.audit import AuthoritativeAuditStore
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -45,6 +48,12 @@ def isolated_client(
         ModelGuidanceCatalog(settings.model_catalog_path),
     )
     monkeypatch.setattr(main, "audit_store", AuthoritativeAuditStore(settings.audit_path))
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(
+            main.audit_store,
+            "_fsync_directory",
+            lambda _path: None,
+        )
     return (
         TestClient(main.app, raise_server_exceptions=raise_server_exceptions),
         credential,
@@ -59,6 +68,30 @@ def service_headers(credential: str, request_id: str | None = None) -> dict[str,
     if request_id is not None:
         headers["x-request-id"] = request_id
     return headers
+
+
+def use_in_memory_raw_store(monkeypatch) -> dict[str, bytes]:
+    retained: dict[str, bytes] = {}
+
+    class InMemoryRawStore:
+        max_record_bytes = main.settings.max_source_record_bytes
+
+        @staticmethod
+        def store(candidate: bytes) -> str:
+            digest = sha256_digest(candidate)
+            retained[digest] = candidate
+            return digest
+
+        @staticmethod
+        def exists(digest: str) -> bool:
+            return digest in retained
+
+        @staticmethod
+        def retrieve(digest: str) -> bytes:
+            return retained[digest]
+
+    monkeypatch.setattr(main, "raw_store", InMemoryRawStore())
+    return retained
 
 
 def succeeded_event(
@@ -159,6 +192,65 @@ def test_terminal_audit_append_failure_preserves_authoritative_success(
     ]
 
 
+def test_failure_audit_append_failure_preserves_authoritative_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(
+        tmp_path,
+        monkeypatch,
+        raise_server_exceptions=False,
+    )
+    append = main.audit_store.append
+
+    def fail_terminal_append(event) -> None:
+        if event.result == MutationResult.FAILED:
+            raise OSError("audit ledger is full")
+        append(event)
+
+    def reject_mutation(_payload: bytes, _digest: str) -> bool:
+        raise HTTPException(status_code=422, detail="simulated mutation rejection")
+
+    monkeypatch.setattr(main.audit_store, "append", fail_terminal_append)
+    monkeypatch.setattr(main._core, "_verify_and_retain", reject_mutation)
+    digest = sha256_digest(b"rejected mutation")
+
+    response = client.put(f"/v1/source-records/{digest}", content=b"rejected mutation")
+
+    assert response.status_code == 422
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.FAILED,
+    ]
+    assert not list(main.audit_store.pending_events())
+
+
+def test_success_timestamp_is_not_recorded_before_the_mutation_completes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = b"completion timestamp evidence"
+    digest = sha256_digest(payload)
+    completed_at: datetime | None = None
+
+    def retain_then_record_completion(candidate: bytes, expected_digest: str) -> bool:
+        nonlocal completed_at
+        assert sha256_digest(candidate) == expected_digest
+        completed_at = datetime.now(UTC)
+        return False
+
+    monkeypatch.setattr(main._core, "_verify_and_retain", retain_then_record_completion)
+
+    response = client.put(f"/v1/source-records/{digest}", content=payload)
+
+    assert response.status_code == 201
+    assert completed_at is not None
+    succeeded = list(main.audit_store.iter_events())[-1]
+    assert succeeded.result == MutationResult.SUCCEEDED
+    assert succeeded.occurred_at >= completed_at
+
+
 def test_restart_reconciles_success_committed_before_terminal_audit(tmp_path, monkeypatch) -> None:
     client, _ = isolated_client(tmp_path, monkeypatch)
     payload = b"restart recovery evidence"
@@ -196,6 +288,95 @@ def test_restart_reconciles_completed_source_ingestion(tmp_path, monkeypatch) ->
     assert not list(main.audit_store.pending_events())
 
 
+def test_restart_reconciles_source_ingestion_without_redecoding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = (
+        Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json"
+    ).read_bytes()
+    use_in_memory_raw_store(monkeypatch)
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(main.store, "_fsync_directory", lambda _path: None)
+    monkeypatch.setattr(main.audit_store, "commit_terminal", lambda _event_id: None)
+
+    response = client.post("/v1/source-records", content=payload)
+
+    assert response.status_code == 202
+
+    class ChangedAdapter:
+        def decode(self, _payload: bytes):
+            raise ValueError("decoder behavior changed after deployment")
+
+    monkeypatch.setattr(main, "adapter", ChangedAdapter())
+    main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(main.audit_store, "_fsync_directory", lambda _path: None)
+    main._reconcile_pending_audit()
+
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.SUCCEEDED,
+    ]
+    assert not list(main.audit_store.pending_events())
+
+
+def test_ingestion_marker_binds_redelivery_to_the_existing_canonical_record(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    record = json.loads(
+        (Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json").read_text()
+    )
+    original = main._core._with_platform_verification(Observation.model_validate(record))
+    redelivery = original.model_copy(
+        update={"ingestion_time": original.ingestion_time + timedelta(minutes=5)}
+    )
+    mutation_id = uuid4()
+    source_digest = original.provenance.source_record_digest
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(main.store, "_fsync_directory", lambda _path: None)
+    main.store.append(original)
+
+    main._core._admit_observations(
+        [redelivery],
+        mutation_id=mutation_id,
+        source_record_digest=source_digest,
+    )
+
+    assert main.store.contains_ingestion_mutation(mutation_id, source_digest)
+    assert list(main.store.iter_observations()) == [original]
+
+
+def test_ingestion_marker_is_not_published_before_observation_append(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    isolated_client(tmp_path, monkeypatch)
+    record = json.loads(
+        (Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json").read_text()
+    )
+    observation = main._core._with_platform_verification(Observation.model_validate(record))
+    mutation_id = uuid4()
+    source_digest = observation.provenance.source_record_digest
+    monkeypatch.setattr(
+        main.store,
+        "append",
+        lambda _observation: (_ for _ in ()).throw(OSError("simulated append failure")),
+    )
+
+    with pytest.raises(OSError, match="append failure"):
+        main._core._admit_observations(
+            [observation],
+            mutation_id=mutation_id,
+            source_record_digest=source_digest,
+        )
+
+    assert not main.store.contains_ingestion_mutation(mutation_id, source_digest)
+
+
 def test_restart_reconciles_model_cycle_appended_by_the_same_mutation(
     tmp_path,
     monkeypatch,
@@ -231,20 +412,21 @@ def test_restart_reconciles_model_cycle_appended_by_the_same_mutation(
     assert not list(main.audit_store.pending_events())
 
 
-def test_restart_keeps_undecodable_ingestion_success_pending(tmp_path, monkeypatch) -> None:
+def test_restart_keeps_ingestion_pending_when_failure_commit_is_interrupted(
+    tmp_path,
+    monkeypatch,
+) -> None:
     client, _ = isolated_client(tmp_path, monkeypatch)
     payload = b"retained but undecodable after interruption"
-    monkeypatch.setattr(main.audit_store, "discard_terminal", lambda _event_id: None)
+    use_in_memory_raw_store(monkeypatch)
+    monkeypatch.setattr(main.audit_store, "commit_failure", lambda _event_id, _event: None)
 
     response = client.post("/v1/source-records", content=payload)
 
     assert response.status_code == 422
     main.audit_store = AuthoritativeAuditStore(main.settings.audit_path)
     main._reconcile_pending_audit()
-    assert [event.result for event in main.audit_store.iter_events()] == [
-        MutationResult.ATTEMPTED,
-        MutationResult.FAILED,
-    ]
+    assert [event.result for event in main.audit_store.iter_events()] == [MutationResult.ATTEMPTED]
     pending = list(main.audit_store.pending_events())
     assert len(pending) == 1
     assert pending[0].action == "source_record.ingested"
@@ -505,7 +687,7 @@ def test_canonical_conflict_audits_retained_source_evidence(tmp_path, monkeypatc
         Path(__file__).resolve().parents[2] / "testdata/observations/temperature.json"
     ).read_bytes()
     digest = sha256_digest(payload)
-    decoded = main.ingest_source_record(
+    decoded = ingest_source_record(
         payload,
         adapter=main.adapter,
         raw_store=main.raw_store,

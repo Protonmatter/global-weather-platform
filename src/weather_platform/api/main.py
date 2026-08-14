@@ -21,7 +21,7 @@ from weather_platform.config import Settings
 from weather_platform.domain.audit import MutationAuditEvent, MutationResult
 from weather_platform.domain.model_catalog import ModelGuidanceCycle
 from weather_platform.domain.models import Observation
-from weather_platform.ingestion.pipeline import SourceDecodeError, ingest_source_record
+from weather_platform.ingestion.pipeline import SourceDecodeError
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.audit import AuthoritativeAuditStore
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -94,6 +94,7 @@ async def request_identity_middleware(
 def _mutation_event(
     request: Request,
     *,
+    event_id: uuid.UUID | None = None,
     actor: str,
     action: str,
     resource_type: str,
@@ -102,7 +103,7 @@ def _mutation_event(
     detail: dict[str, Any] | None = None,
 ) -> MutationAuditEvent:
     return MutationAuditEvent(
-        event_id=uuid.uuid4(),
+        event_id=event_id or uuid.uuid4(),
         request_id=_request_id_from_request(request),
         actor=actor,
         action=action,
@@ -160,15 +161,16 @@ def _prepare_success_event(
     )
 
 
-def _record_failed_mutation(
+def _failed_mutation_event(
     request: Request,
     *,
+    event_id: uuid.UUID,
     actor: str,
     action: str,
     resource_type: str,
     resource_id: str,
     error: Exception,
-) -> None:
+) -> MutationAuditEvent:
     underlying: BaseException = error
     decode_error: SourceDecodeError | None = None
     if isinstance(underlying, SourceDecodeError):
@@ -188,8 +190,9 @@ def _record_failed_mutation(
             retained = False
         if retained:
             failure_detail["retained"] = True
-    _record_mutation_event(
+    return _mutation_event(
         request,
+        event_id=event_id,
         actor=actor,
         action=action,
         resource_type=resource_type,
@@ -203,19 +206,14 @@ def _canonical_mutation_succeeded(event: MutationAuditEvent) -> bool:
     """Return true only when canonical storage proves a prepared success."""
 
     if event.action == "source_record.retained":
-        if not raw_store.exists(event.resource_id):
-            return False
-        raw_store.retrieve(event.resource_id)
-        return True
+        # Retained bytes are content-addressed and may predate this request.
+        # Only the audit store's request-specific applied receipt can prove
+        # completion for this action.
+        return False
     if event.action == "observation.admitted":
-        expected_digest = event.detail.get("content_digest")
-        if not isinstance(expected_digest, str):
-            return False
-        return any(
-            str(observation.observation_id) == event.resource_id
-            and sha256_digest(observation.model_dump_json().encode("utf-8")) == expected_digest
-            for observation in store.iter_observations()
-        )
+        # An identical canonical observation may also predate this request.
+        # Generic state therefore cannot prove that this mutation completed.
+        return False
     if event.action == "model_cycle.catalogued":
         expected_digest = event.detail.get("content_digest")
         if not isinstance(expected_digest, str):
@@ -224,28 +222,8 @@ def _canonical_mutation_succeeded(event: MutationAuditEvent) -> bool:
     if event.action == "source_record.ingested":
         if not raw_store.exists(event.resource_id):
             return False
-        try:
-            result = ingest_source_record(
-                raw_store.retrieve(event.resource_id),
-                adapter=adapter,
-                raw_store=raw_store,
-            )
-        except SourceDecodeError:
-            return False
-        expected = [
-            _core._with_platform_verification(observation) for observation in result.observations
-        ]
-        if any(observation.quality_disposition.value == "reject" for observation in expected):
-            return False
-        existing = {
-            observation.observation_id: observation for observation in store.iter_observations()
-        }
-        return all(
-            observation.observation_id in existing
-            and _core._observation_content(existing[observation.observation_id])
-            == _core._observation_content(observation)
-            for observation in expected
-        )
+        raw_store.retrieve(event.resource_id)
+        return store.contains_ingestion_mutation(event.event_id, event.resource_id)
     return False
 
 
@@ -283,16 +261,20 @@ def _audited_mutation(
     try:
         yield terminal_event_id
     except Exception as error:
-        audit_store.discard_terminal(terminal_event_id)
-        _record_failed_mutation(
-            request,
-            actor=actor,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            error=error,
+        audit_store.commit_failure(
+            terminal_event_id,
+            _failed_mutation_event(
+                request,
+                event_id=terminal_event_id,
+                actor=actor,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                error=error,
+            ),
         )
         raise
+    audit_store.mark_applied(terminal_event_id)
     audit_store.commit_terminal(terminal_event_id)
 
 
@@ -361,8 +343,12 @@ async def create_source_record(request: Request) -> dict[str, Any]:
         resource_type="source_record",
         resource_id=digest,
         detail=detail,
-    ):
-        response = await run_in_threadpool(_core._ingest_and_store, payload)
+    ) as mutation_id:
+        response = await run_in_threadpool(
+            _core._ingest_and_store,
+            payload,
+            mutation_id=mutation_id,
+        )
     return response
 
 

@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -101,3 +102,78 @@ def test_catalog_binds_an_append_to_its_mutation_identity(tmp_path: Path) -> Non
         uuid4(),
         sha256_digest(item.model_dump_json().encode("utf-8")),
     )
+
+
+def test_catalog_repairs_only_a_torn_final_record_before_recovery(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    catalog.register(retained)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    restarted = ModelGuidanceCatalog(path)
+
+    assert restarted.list() == [retained]
+    assert path.read_text(encoding="utf-8").endswith("\n")
+
+
+def test_catalog_rejects_a_malformed_newline_terminated_record(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    catalog.register(cycle([field(lead_hours=0)]))
+    with path.open("ab") as handle:
+        handle.write(b"not-json\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    restarted = ModelGuidanceCatalog(path)
+
+    with pytest.raises(ValueError, match="invalid model cycle at line 2"):
+        restarted.list()
+
+
+def test_catalog_repairs_a_crashed_writer_before_a_later_instance_appends(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    first = ModelGuidanceCatalog(path)
+    later = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    appended = cycle([field(lead_hours=6)], source_revision="2026072206")
+    first.register(retained)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    later.register(appended)
+
+    assert later.list() == [retained, appended]
+
+
+def test_catalog_rolls_back_a_partial_append_failure(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    rejected = cycle([field(lead_hours=6)], source_revision="2026072206")
+    catalog.register(retained)
+    original = path.read_bytes()
+    write = os.write
+    interrupted = False
+
+    def interrupt_once(descriptor: int, payload: bytes) -> int:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            write(descriptor, payload[: max(1, len(payload) // 2)])
+            raise OSError("simulated partial catalog write")
+        return write(descriptor, payload)
+
+    monkeypatch.setattr(os, "write", interrupt_once)
+
+    with pytest.raises(OSError, match="partial catalog write"):
+        catalog.register(rejected)
+
+    assert path.read_bytes() == original
+    assert catalog.list() == [retained]

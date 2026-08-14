@@ -84,7 +84,7 @@ def test_authoritative_audit_store_rejects_duplicate_event_identity(tmp_path) ->
 def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch) -> None:
     domain = audit_module()
     storage = import_module("weather_platform.storage.audit")
-    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
     attempted = valid_event(domain)
     succeeded = attempted.model_copy(
         update={
@@ -95,14 +95,25 @@ def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch
     store.append(attempted)
     terminal_id = store.prepare_terminal(succeeded)
 
+    write_all = store._write_all
+    writes = 0
+
     def partial_write(descriptor: int, payload: bytes) -> None:
+        nonlocal writes
+        writes += 1
+        if writes == 1:
+            write_all(descriptor, payload)
+            return
         os.write(descriptor, payload[: len(payload) // 2])
         raise OSError("audit ledger is full")
 
     monkeypatch.setattr(store, "_write_all", partial_write)
     store.commit_terminal(terminal_id)
 
-    assert list(store.iter_events()) == [attempted, succeeded]
+    events = list(store.iter_events())
+    assert events[0] == attempted
+    assert events[1] == succeeded.model_copy(update={"occurred_at": events[1].occurred_at})
+    assert events[1].occurred_at >= succeeded.occurred_at
 
 
 def test_pending_success_reconciles_after_process_restart(tmp_path, monkeypatch) -> None:
@@ -123,7 +134,10 @@ def test_pending_success_reconciles_after_process_restart(tmp_path, monkeypatch)
     restarted = storage.AuthoritativeAuditStore(audit_path)
     restarted.reconcile_pending(lambda event: event.resource_id == succeeded.resource_id)
 
-    assert list(restarted.iter_events()) == [attempted, succeeded]
+    events = list(restarted.iter_events())
+    assert events[0] == attempted
+    assert events[1] == succeeded.model_copy(update={"occurred_at": events[1].occurred_at})
+    assert events[1].occurred_at >= succeeded.occurred_at
     assert not list(restarted.pending_events())
 
 
@@ -206,7 +220,79 @@ def test_commit_terminal_is_idempotent_after_ledger_append(tmp_path, monkeypatch
 
     store.commit_terminal(terminal_id)
 
-    assert list(store.iter_events()) == [succeeded]
+    events = list(store.iter_events())
+    assert events == [succeeded.model_copy(update={"occurred_at": events[0].occurred_at})]
+    assert events[0].occurred_at >= succeeded.occurred_at
+
+
+def test_commit_terminal_records_the_commit_timestamp(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    prepared_at = datetime(2026, 8, 13, 20, 0, tzinfo=UTC)
+    committed_at = datetime(2026, 8, 13, 20, 5, tzinfo=UTC)
+    succeeded = valid_event(domain).model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": domain.MutationResult.SUCCEEDED,
+            "occurred_at": prepared_at,
+        }
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+
+    store.commit_terminal(terminal_id, occurred_at=committed_at)
+
+    assert next(store.iter_events()).occurred_at == committed_at
+
+
+def test_restart_commits_a_request_specific_applied_receipt(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+    store.mark_applied(terminal_id)
+
+    restarted = audit_store_for_test(storage, tmp_path, monkeypatch)
+    restarted.reconcile_pending(lambda _event: False)
+
+    events = list(restarted.iter_events())
+    assert events == [succeeded.model_copy(update={"occurred_at": events[0].occurred_at})]
+    assert not list(restarted.pending_events())
+
+
+def test_failure_replaces_prepared_success_before_ledger_append(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+    failed = succeeded.model_copy(
+        update={
+            "result": domain.MutationResult.FAILED,
+            "detail": {"error_type": "ValueError"},
+        }
+    )
+    append = store.append
+
+    def fail_ledger_append(event) -> None:
+        if event.result == domain.MutationResult.FAILED:
+            raise OSError("audit ledger is full")
+        append(event)
+
+    monkeypatch.setattr(store, "append", fail_ledger_append)
+
+    store.commit_failure(terminal_id, failed)
+
+    assert list(store.iter_events()) == [failed]
+    assert not list(store.pending_events())
 
 
 def test_commit_terminal_rejects_unknown_identity(tmp_path, monkeypatch) -> None:

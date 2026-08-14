@@ -6,8 +6,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from uuid import UUID
 
 from weather_platform.domain.models import Observation, QualityDisposition
+from weather_platform.provenance import sha256_digest
 
 
 class JsonlObservationStore:
@@ -21,6 +23,8 @@ class JsonlObservationStore:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_path = Path(str(self.path) + ".lock")
+        self._ingestion_path = Path(str(self.path) + ".ingestions")
+        self._ingestion_path.mkdir(mode=0o750, exist_ok=True)
         # Reentrant in-process exclusion; the flock adds cross-process exclusion.
         self._lock = threading.RLock()
         self._lock_fd: int | None = None
@@ -47,6 +51,108 @@ class JsonlObservationStore:
                     fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
                     os.close(self._lock_fd)
                     self._lock_fd = None
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _ingestion_marker(self, mutation_id: UUID) -> Path:
+        return self._ingestion_path / f"{mutation_id}.json"
+
+    @staticmethod
+    def _observation_evidence(observation: Observation) -> dict[str, str]:
+        return {
+            "content_digest": sha256_digest(observation.model_dump_json().encode("utf-8")),
+            "observation_id": str(observation.observation_id),
+        }
+
+    def record_ingestion_mutation(
+        self,
+        mutation_id: UUID,
+        *,
+        source_digest: str,
+        observations: list[Observation],
+    ) -> None:
+        """Durably record the exact canonical output expected from one ingestion."""
+
+        evidence = sorted(
+            (self._observation_evidence(observation) for observation in observations),
+            key=lambda item: item["observation_id"],
+        )
+        payload = {
+            "mutation_id": str(mutation_id),
+            "observations": evidence,
+            "source_record_digest": source_digest,
+        }
+        encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        marker = self._ingestion_marker(mutation_id)
+        with self.transaction():
+            if marker.exists():
+                try:
+                    existing = json.loads(marker.read_text(encoding="utf-8"))
+                except ValueError as exc:
+                    raise ValueError(f"invalid ingestion marker {marker.name}") from exc
+                if existing != payload:
+                    raise ValueError(f"conflicting ingestion marker {mutation_id}")
+                return
+            with NamedTemporaryFile(
+                "w",
+                dir=self._ingestion_path,
+                delete=False,
+                encoding="utf-8",
+            ) as temporary_file:
+                temporary = Path(temporary_file.name)
+                temporary_file.write(encoded)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            try:
+                temporary.chmod(0o640)
+                os.replace(temporary, marker)
+                self._fsync_directory(self._ingestion_path)
+            except BaseException:
+                temporary.unlink(missing_ok=True)
+                raise
+
+    def contains_ingestion_mutation(self, mutation_id: UUID, source_digest: str) -> bool:
+        """Verify one ingestion marker against the original canonical observations."""
+
+        marker = self._ingestion_marker(mutation_id)
+        with self.transaction():
+            if not marker.exists():
+                return False
+            try:
+                payload = json.loads(marker.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("mutation_id") != str(mutation_id)
+                    or payload.get("source_record_digest") != source_digest
+                    or not isinstance(payload.get("observations"), list)
+                ):
+                    return False
+                expected = {
+                    str(item["observation_id"]): str(item["content_digest"])
+                    for item in payload["observations"]
+                    if isinstance(item, dict)
+                    and set(item) == {"content_digest", "observation_id"}
+                }
+                if len(expected) != len(payload["observations"]):
+                    return False
+            except (OSError, TypeError, ValueError) as exc:
+                raise ValueError(f"invalid ingestion marker {marker.name}") from exc
+            existing = {
+                str(observation.observation_id): sha256_digest(
+                    observation.model_dump_json().encode("utf-8")
+                )
+                for observation in self.iter_observations()
+            }
+            return all(
+                existing.get(observation_id) == digest
+                for observation_id, digest in expected.items()
+            )
 
     def append(self, observation: Observation) -> None:
         encoded = observation.model_dump_json() + "\n"

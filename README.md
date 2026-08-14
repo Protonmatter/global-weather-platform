@@ -67,6 +67,8 @@ curl -s 'http://127.0.0.1:8080/v1/observations?phenomenon=air_temperature'
 
 `POST /v1/source-records` retains raw bytes before decoding them. If decoding, quality admission, or canonical persistence fails after retention, the terminal audit event explicitly records that the immutable source evidence was retained and integrity-verified. Canonical observations posted directly to `POST /v1/observations` must reference an already-retained source record; deposit undecoded bytes first with `PUT /v1/source-records/{digest}`.
 
+Successful source ingestion records the request-specific observation identifiers and content digests only after every canonical append completes. Startup recovery verifies that original evidence marker against canonical storage; it does not re-run a potentially changed decoder.
+
 Production mutations and raw-source retrieval require both the control-plane bearer credential and the trusted `x-weather-actor` identity supplied by the authenticated BFF. Development mode retains the direct local workflow.
 
 ## Reproducible dependencies
@@ -100,7 +102,7 @@ The focused targets use deterministic fixtures and do not call live weather prov
 4. Observations and gridded model guidance remain separate canonical types.
 5. Model initialization time, valid time, and forecast lead are always explicit.
 6. Provider ETags are metadata; platform-calculated SHA-256 digests are content identities.
-7. Persistent mutations produce authoritative lifecycle audit events before and after state changes; startup recovery publishes only prepared successes proven present in canonical storage for the exact mutation identity and expected content digest.
+7. Persistent mutations produce authoritative lifecycle audit events before and after state changes. Terminal failures replace prepared successes durably before cleanup, success timestamps are assigned at terminal commit, and startup recovery requires either a request-specific applied receipt or canonical storage evidence bound to the exact mutation identity and expected content digest.
 8. Runtime telemetry is disabled unless an approved internal endpoint is explicitly configured.
 9. Production egress is deny-by-default and opened only for documented acquisition workers.
 10. Application rollback and model-cycle publication rollback remain independent.

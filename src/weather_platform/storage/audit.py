@@ -4,6 +4,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -117,6 +118,27 @@ class AuthoritativeAuditStore:
     def _outbox_file(self, event_id: UUID, state: str) -> Path:
         return self._outbox_path / f"{event_id}.{state}.json"
 
+    def _write_outbox_event(self, event: MutationAuditEvent, target: Path) -> None:
+        encoded = event.model_dump_json().encode("utf-8")
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=self._outbox_path,
+            prefix=f".{event.event_id}.",
+            suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
+        try:
+            try:
+                os.fchmod(descriptor, 0o640)
+                self._write_all(descriptor, encoded)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.replace(temporary, target)
+            self._fsync_directory(self._outbox_path)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+
     @staticmethod
     def _read_outbox_event(path: Path) -> MutationAuditEvent:
         try:
@@ -135,6 +157,22 @@ class AuthoritativeAuditStore:
             snapshot = [
                 self._read_outbox_event(path)
                 for path in sorted(self._outbox_path.glob("*.pending.json"))
+                if not path.with_name(
+                    f"{path.name.removesuffix('.pending.json')}.committed.json"
+                ).exists()
+            ]
+        yield from snapshot
+
+    def _applied_events(self) -> Iterator[MutationAuditEvent]:
+        """Return requests with durable handler-completion receipts."""
+
+        with self._transaction():
+            snapshot = [
+                self._read_outbox_event(path)
+                for path in sorted(self._outbox_path.glob("*.applied.json"))
+                if not path.with_name(
+                    f"{path.name.removesuffix('.applied.json')}.committed.json"
+                ).exists()
             ]
         yield from snapshot
 
@@ -149,6 +187,11 @@ class AuthoritativeAuditStore:
         false success or discarded without evidence.
         """
 
+        # Applied receipts are mutation-specific evidence written by the
+        # request only after its handler returns successfully. They avoid
+        # inferring completion from canonical state that may predate a request.
+        for event in self._applied_events():
+            self.commit_terminal(event.event_id)
         for event in self.pending_events():
             if canonical_state_contains(event):
                 self.commit_terminal(event.event_id)
@@ -175,36 +218,20 @@ class AuthoritativeAuditStore:
 
         if event.result != MutationResult.SUCCEEDED:
             raise ValueError("only succeeded events may be prepared for outbox commit")
-        encoded = event.model_dump_json().encode("utf-8")
         pending = self._outbox_file(event.event_id, "pending")
+        applied = self._outbox_file(event.event_id, "applied")
         committed = self._outbox_file(event.event_id, "committed")
         with self._transaction():
             if (
                 pending.exists()
+                or applied.exists()
                 or committed.exists()
                 or any(
                     existing.event_id == event.event_id for existing in self._iter_ledger_events()
                 )
             ):
                 raise ValueError(f"duplicate audit event id {event.event_id}")
-            descriptor, temporary_name = tempfile.mkstemp(
-                dir=self._outbox_path,
-                prefix=f".{event.event_id}.",
-                suffix=".tmp",
-            )
-            temporary = Path(temporary_name)
-            try:
-                try:
-                    os.fchmod(descriptor, 0o640)
-                    self._write_all(descriptor, encoded)
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
-                os.replace(temporary, pending)
-                self._fsync_directory(self._outbox_path)
-            except BaseException:
-                temporary.unlink(missing_ok=True)
-                raise
+            self._write_outbox_event(event, pending)
         return event.event_id
 
     def discard_terminal(self, event_id: UUID) -> None:
@@ -216,23 +243,7 @@ class AuthoritativeAuditStore:
                 pending.unlink()
                 self._fsync_directory(self._outbox_path)
 
-    def commit_terminal(self, event_id: UUID) -> None:
-        """Publish a prepared success, retaining it in the outbox if JSONL append fails."""
-
-        pending = self._outbox_file(event_id, "pending")
-        committed = self._outbox_file(event_id, "committed")
-        with self._transaction():
-            if pending.exists():
-                event = self._read_outbox_event(pending)
-                os.replace(pending, committed)
-                self._fsync_directory(self._outbox_path)
-            elif committed.exists():
-                event = self._read_outbox_event(committed)
-            else:
-                if any(existing.event_id == event_id for existing in self._iter_ledger_events()):
-                    return
-                raise ValueError(f"unknown prepared audit event {event_id}")
-
+    def _append_committed_event(self, event: MutationAuditEvent, committed: Path) -> None:
         try:
             self.append(event)
         except OSError:
@@ -256,6 +267,106 @@ class AuthoritativeAuditStore:
         except OSError:
             # Replay deduplicates the JSONL and outbox copies by event ID.
             return
+
+    def mark_applied(self, event_id: UUID) -> None:
+        """Durably record that one prepared mutation handler completed."""
+
+        pending = self._outbox_file(event_id, "pending")
+        applied = self._outbox_file(event_id, "applied")
+        committed = self._outbox_file(event_id, "committed")
+        with self._transaction():
+            if applied.exists() or committed.exists():
+                return
+            if not pending.exists():
+                if any(existing.event_id == event_id for existing in self._iter_ledger_events()):
+                    return
+                raise ValueError(f"unknown prepared audit event {event_id}")
+            os.replace(pending, applied)
+            self._fsync_directory(self._outbox_path)
+
+    @staticmethod
+    def _same_mutation(left: MutationAuditEvent, right: MutationAuditEvent) -> bool:
+        return (
+            left.event_id == right.event_id
+            and left.request_id == right.request_id
+            and left.actor == right.actor
+            and left.action == right.action
+            and left.resource_type == right.resource_type
+            and left.resource_id == right.resource_id
+            and left.software_version == right.software_version
+        )
+
+    def commit_failure(self, event_id: UUID, event: MutationAuditEvent) -> None:
+        """Replace a prepared success with a durable failure before cleanup."""
+
+        if event.event_id != event_id or event.result != MutationResult.FAILED:
+            raise ValueError("failed event must match the prepared terminal identity")
+        pending = self._outbox_file(event_id, "pending")
+        committed = self._outbox_file(event_id, "committed")
+        with self._transaction():
+            if committed.exists():
+                existing = self._read_outbox_event(committed)
+                if existing != event:
+                    raise ValueError(f"conflicting committed audit event {event_id}")
+            elif pending.exists():
+                prepared = self._read_outbox_event(pending)
+                if not self._same_mutation(prepared, event):
+                    raise ValueError(f"failed audit event does not match prepared event {event_id}")
+                self._write_outbox_event(event, committed)
+            else:
+                matching = [
+                    existing
+                    for existing in self._iter_ledger_events()
+                    if existing.event_id == event_id
+                ]
+                if matching == [event]:
+                    return
+                raise ValueError(f"unknown prepared audit event {event_id}")
+            try:
+                pending.unlink(missing_ok=True)
+                self._fsync_directory(self._outbox_path)
+            except OSError:
+                # The committed terminal event is authoritative; a stale
+                # prepared copy is ignored and can be cleaned up later.
+                pass
+
+        self._append_committed_event(event, committed)
+
+    def commit_terminal(
+        self,
+        event_id: UUID,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        """Publish a prepared success, retaining it in the outbox if JSONL append fails."""
+
+        pending = self._outbox_file(event_id, "pending")
+        applied = self._outbox_file(event_id, "applied")
+        committed = self._outbox_file(event_id, "committed")
+        with self._transaction():
+            if committed.exists():
+                event = self._read_outbox_event(committed)
+            elif applied.exists() or pending.exists():
+                prepared_path = applied if applied.exists() else pending
+                prepared = self._read_outbox_event(prepared_path)
+                event = prepared.model_copy(
+                    update={"occurred_at": occurred_at or datetime.now(UTC)}
+                )
+                self._write_outbox_event(event, committed)
+            else:
+                if any(existing.event_id == event_id for existing in self._iter_ledger_events()):
+                    return
+                raise ValueError(f"unknown prepared audit event {event_id}")
+            try:
+                pending.unlink(missing_ok=True)
+                applied.unlink(missing_ok=True)
+                self._fsync_directory(self._outbox_path)
+            except OSError:
+                # The committed terminal event is authoritative; a stale
+                # prepared copy is ignored and can be cleaned up later.
+                pass
+
+        self._append_committed_event(event, committed)
 
     def iter_events(self) -> Iterator[MutationAuditEvent]:
         with self._transaction():

@@ -1,8 +1,11 @@
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import uuid4
 
 from weather_platform.domain.models import Observation
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.jsonl import JsonlObservationStore
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,3 +72,31 @@ def test_concurrent_appends_do_not_corrupt_the_store(tmp_path: Path) -> None:
         list(pool.map(lambda _: store.append(observation), range(40)))
     # Every line parses: no interleaved or torn writes under the lock.
     assert len(store.list(include_quarantined=True)) == 40
+
+
+def test_ingestion_marker_verifies_the_original_canonical_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    path = tmp_path / "observations.jsonl"
+    store = JsonlObservationStore(path)
+    observation = load_observation()
+    mutation_id = uuid4()
+    source_digest = observation.provenance.source_record_digest
+    if not hasattr(os, "O_DIRECTORY"):
+        monkeypatch.setattr(store, "_fsync_directory", lambda _path: None)
+    store.append(observation)
+
+    store.record_ingestion_mutation(
+        mutation_id,
+        source_digest=source_digest,
+        observations=[observation],
+    )
+
+    restarted = JsonlObservationStore(path)
+    assert restarted.contains_ingestion_mutation(mutation_id, source_digest)
+    assert not restarted.contains_ingestion_mutation(uuid4(), source_digest)
+    assert not restarted.contains_ingestion_mutation(
+        mutation_id,
+        sha256_digest(b"different source"),
+    )
