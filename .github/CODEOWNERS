@@ -1,7 +1,4 @@
-/specs/                         @program-governance @scientific-review
-/schemas/                       @data-architecture
-/src/weather_platform/scientific/ @probabilistic-modeling @independent-verification
-/deploy/                        @platform-sre @security-architecture
-/apps/operator-console/         @platform-sre @product-security
-/.github/workflows/             @platform-sre @product-security
-/docs/NETWORK_BOUNDARY.md       @security-architecture
+# The repository is currently owned by a personal account, so organization
+# team handles cannot enforce reviews here. Replace this fallback with real
+# organization teams after repository migration.
+* @Protonmatter
