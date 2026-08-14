@@ -451,6 +451,37 @@ export function adaptControlPlaneModelCycles(payload: unknown) {
   };
 }
 
+export function adaptControlPlaneAuditEvents(payload: unknown) {
+  const document = record(payload, "audit response");
+  if (!Array.isArray(document.events)) {
+    throw new Error("The control plane returned an invalid audit event list.");
+  }
+  return {
+    events: document.events.map((value) => {
+      const item = record(value, "audit event");
+      const result = requiredString(item.result, "result");
+      if (!["attempted", "succeeded", "failed"].includes(result)) {
+        throw new Error("The control plane returned an invalid audit result.");
+      }
+      return {
+        id: requiredString(item.event_id, "event_id"),
+        requestId: requiredString(item.request_id, "request_id"),
+        actor: requiredString(item.actor, "actor"),
+        action: requiredString(item.action, "action"),
+        resourceType: requiredString(item.resource_type, "resource_type"),
+        resourceId: requiredString(item.resource_id, "resource_id"),
+        result,
+        occurredAt: requiredString(item.occurred_at, "occurred_at"),
+        softwareVersion: requiredString(
+          item.software_version,
+          "software_version",
+        ),
+        detail: record(item.detail, "audit event detail"),
+      };
+    }),
+  };
+}
+
 export function adaptControlPlaneHealth(payload: unknown) {
   const item = record(payload, "health response");
   return {

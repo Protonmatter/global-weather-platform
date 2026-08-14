@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adaptControlPlaneAuditEvents,
   adaptControlPlaneEdrCollections,
   adaptControlPlaneHealth,
   adaptControlPlaneModelCycles,
@@ -377,6 +378,26 @@ test("authoritative responses are normalized to console DTOs", () => {
     },
   ]);
   assert.equal(cycles.cycles[0].availableFieldCount, 1);
+
+  const audit = adaptControlPlaneAuditEvents({
+    events: [
+      {
+        event_id: "fcaf573e-a9d4-4de0-aa98-3ba70132036f",
+        request_id: "247c9cf1-80d6-4c8f-b1d5-e96abf2e1cc4",
+        actor: "operator@example.invalid",
+        action: "source_record.retained",
+        resource_type: "source_record",
+        resource_id: `sha256:${"c".repeat(64)}`,
+        result: "succeeded",
+        occurred_at: "2026-08-14T12:00:00Z",
+        software_version: "0.1.0",
+        detail: { byte_length: 42 },
+      },
+    ],
+  });
+  assert.equal(audit.events[0].requestId, "247c9cf1-80d6-4c8f-b1d5-e96abf2e1cc4");
+  assert.equal(audit.events[0].result, "succeeded");
+  assert.deepEqual(audit.events[0].detail, { byte_length: 42 });
 
   const health = adaptControlPlaneHealth({
     status: "ok",

@@ -146,6 +146,10 @@ class ModelGuidanceCatalog:
         with self._transaction():
             if not self.path.exists():
                 return
+            # A different process may have stopped during an append after this
+            # instance was constructed. Repair a provably torn final record
+            # before startup reconciliation or any other read scans the file.
+            self._repair_incomplete_tail()
             with self.path.open("r", encoding="utf-8") as handle:
                 for line_number, line in enumerate(handle, start=1):
                     if not line.strip():

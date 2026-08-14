@@ -154,12 +154,14 @@ class AuthoritativeAuditStore:
         """Return a stable snapshot of successes awaiting state reconciliation."""
 
         with self._transaction():
+            ledger_event_ids = {event.event_id for event in self._iter_ledger_events()}
             snapshot = [
                 self._read_outbox_event(path)
                 for path in sorted(self._outbox_path.glob("*.pending.json"))
                 if not path.with_name(
                     f"{path.name.removesuffix('.pending.json')}.committed.json"
                 ).exists()
+                and UUID(path.name.removesuffix(".pending.json")) not in ledger_event_ids
             ]
         yield from snapshot
 
@@ -167,12 +169,14 @@ class AuthoritativeAuditStore:
         """Return requests with durable handler-completion receipts."""
 
         with self._transaction():
+            ledger_event_ids = {event.event_id for event in self._iter_ledger_events()}
             snapshot = [
                 self._read_outbox_event(path)
                 for path in sorted(self._outbox_path.glob("*.applied.json"))
                 if not path.with_name(
                     f"{path.name.removesuffix('.applied.json')}.committed.json"
                 ).exists()
+                and UUID(path.name.removesuffix(".applied.json")) not in ledger_event_ids
             ]
         yield from snapshot
 
@@ -201,11 +205,19 @@ class AuthoritativeAuditStore:
         with self._transaction():
             if any(existing.event_id == event.event_id for existing in self._iter_ledger_events()):
                 raise ValueError(f"duplicate audit event id {event.event_id}")
-            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
+            flags = os.O_WRONLY | os.O_APPEND
+            created = False
+            try:
+                descriptor = os.open(self.path, flags | os.O_CREAT | os.O_EXCL, 0o640)
+                created = True
+            except FileExistsError:
+                descriptor = os.open(self.path, flags)
             original_size = os.fstat(descriptor).st_size
             try:
                 self._write_all(descriptor, encoded)
                 os.fsync(descriptor)
+                if created:
+                    self._fsync_directory(self.path.parent)
             except OSError:
                 os.ftruncate(descriptor, original_size)
                 os.fsync(descriptor)
@@ -297,7 +309,7 @@ class AuthoritativeAuditStore:
         )
 
     def commit_failure(self, event_id: UUID, event: MutationAuditEvent) -> None:
-        """Replace a prepared success with a durable failure before cleanup."""
+        """Durably record failure, including when terminal preparation failed."""
 
         if event.event_id != event_id or event.result != MutationResult.FAILED:
             raise ValueError("failed event must match the prepared terminal identity")
@@ -312,7 +324,22 @@ class AuthoritativeAuditStore:
                 prepared = self._read_outbox_event(pending)
                 if not self._same_mutation(prepared, event):
                     raise ValueError(f"failed audit event does not match prepared event {event_id}")
-                self._write_outbox_event(event, committed)
+                try:
+                    self._write_outbox_event(event, committed)
+                except OSError:
+                    # Terminal preparation may fail because the outbox is no
+                    # longer writable while the ledger remains available.
+                    # Persist the observed failure directly rather than
+                    # leaving only an attempted lifecycle event.
+                    self.append(event)
+                    try:
+                        pending.unlink(missing_ok=True)
+                        self._fsync_directory(self._outbox_path)
+                    except OSError:
+                        # pending_events() ignores identities already made
+                        # authoritative in the ledger.
+                        pass
+                    return
             else:
                 matching = [
                     existing
@@ -321,7 +348,13 @@ class AuthoritativeAuditStore:
                 ]
                 if matching == [event]:
                     return
-                raise ValueError(f"unknown prepared audit event {event_id}")
+                if matching:
+                    raise ValueError(f"conflicting audit event {event_id}")
+                # prepare_terminal() can fail before a pending file exists.
+                # The mutation has not run, so the ledger is the appropriate
+                # durable path for its terminal failure.
+                self.append(event)
+                return
             try:
                 pending.unlink(missing_ok=True)
                 self._fsync_directory(self._outbox_path)

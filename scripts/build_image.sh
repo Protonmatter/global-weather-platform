@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${PIP_INDEX_URL:?PIP_INDEX_URL must reference the approved internal package mirror}"
+: "${PYPI_MIRROR_ORIGIN:?PYPI_MIRROR_ORIGIN must identify the approved package origin}"
 : "${BASE_IMAGE:?BASE_IMAGE must be an internally mirrored digest-pinned image}"
 : "${IMAGE:?IMAGE must identify the internal output registry and tag}"
 : "${INTERNAL_REGISTRY:?INTERNAL_REGISTRY must identify the approved internal registry}"
@@ -9,6 +10,28 @@ set -euo pipefail
 OCI_NAME_COMPONENT='[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*'
 REGISTRY_PATTERN="^${OCI_NAME_COMPONENT}(:[0-9]{1,5})?$"
 IMAGE_REFERENCE_PATTERN="^(${OCI_NAME_COMPONENT}(:[0-9]{1,5})?)(/${OCI_NAME_COMPONENT})+@sha256:[a-f0-9]{64}$"
+DNS_LABEL='[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?'
+MIRROR_ORIGIN_PATTERN="^https://(${DNS_LABEL})(\.${DNS_LABEL})*(:[0-9]{1,5})?$"
+
+[[ "${PYPI_MIRROR_ORIGIN}" =~ ${MIRROR_ORIGIN_PATTERN} ]] || {
+  echo "PYPI_MIRROR_ORIGIN must be an HTTPS DNS origin without a path" >&2
+  exit 78
+}
+mirror_authority="${PYPI_MIRROR_ORIGIN#https://}"
+if [[ "${mirror_authority}" =~ :([0-9]+)$ ]]; then
+  mirror_port="${BASH_REMATCH[1]}"
+  (( 10#${mirror_port} >= 1 && 10#${mirror_port} <= 65535 )) || {
+    echo "PYPI_MIRROR_ORIGIN port must be between 1 and 65535" >&2
+    exit 78
+  }
+fi
+case "${PIP_INDEX_URL}" in
+  "${PYPI_MIRROR_ORIGIN}"|"${PYPI_MIRROR_ORIGIN}"/*) ;;
+  *)
+    echo "PIP_INDEX_URL must use the approved internal package mirror origin" >&2
+    exit 78
+    ;;
+esac
 
 [[ "${INTERNAL_REGISTRY}" =~ ${REGISTRY_PATTERN} ]] || {
   echo "INTERNAL_REGISTRY must use a normalized OCI registry name" >&2

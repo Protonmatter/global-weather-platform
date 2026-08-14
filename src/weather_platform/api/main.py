@@ -7,7 +7,7 @@ from pathlib import Path as FilePath
 from types import ModuleType
 from typing import Any, cast
 
-from fastapi import HTTPException, Path, Request, status
+from fastapi import HTTPException, Path, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -148,17 +148,31 @@ def _prepare_success_event(
     resource_id: str,
     detail: dict[str, Any],
 ) -> uuid.UUID:
-    return audit_store.prepare_terminal(
-        _mutation_event(
-            request,
-            actor=actor,
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            result=MutationResult.SUCCEEDED,
-            detail=detail,
-        )
+    success = _mutation_event(
+        request,
+        actor=actor,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        result=MutationResult.SUCCEEDED,
+        detail=detail,
     )
+    try:
+        return audit_store.prepare_terminal(success)
+    except Exception as error:
+        audit_store.commit_failure(
+            success.event_id,
+            _failed_mutation_event(
+                request,
+                event_id=success.event_id,
+                actor=actor,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                error=error,
+            ),
+        )
+        raise
 
 
 def _failed_mutation_event(
@@ -298,6 +312,18 @@ for _path, _method in (
     ("/v1/model-cycles", "POST"),
 ):
     _remove_route(_path, _method)
+
+
+@app.get("/v1/audit-events")
+def list_audit_events(
+    request: Request,
+    limit: int = Query(default=200, ge=1, le=1_000),
+) -> dict[str, list[dict[str, Any]]]:
+    """Return recent authoritative mutation events to an authenticated BFF."""
+
+    _core._require_mutation_authorization(request)
+    events = list(audit_store.iter_events())
+    return {"events": [event.model_dump(mode="json") for event in reversed(events[-limit:])]}
 
 
 @app.post("/v1/observations", status_code=status.HTTP_202_ACCEPTED)

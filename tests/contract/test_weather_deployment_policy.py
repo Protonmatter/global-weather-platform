@@ -167,6 +167,7 @@ def test_release_workflow_binds_evidence_to_the_built_repository() -> None:
         if step["name"] == "Render immutable release evidence"
     )
     assert build_step["env"]["INTERNAL_REGISTRY"] == "${{ vars.INTERNAL_REGISTRY }}"
+    assert build_step["env"]["PYPI_MIRROR_ORIGIN"] == "${{ vars.PYPI_MIRROR_ORIGIN }}"
     assert "--expected-repository" in render_step["run"]
     assert "${{ vars.INTERNAL_REGISTRY }}/weather/platform" in render_step["run"]
 
@@ -243,6 +244,7 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
             "IMAGE": "registry.example/weather/platform:test",
             "INTERNAL_REGISTRY": "registry.example",
             "PIP_INDEX_URL": "https://packages.example/simple",
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
         }
     )
     build_script = ROOT / "scripts/build_image.sh"
@@ -296,6 +298,7 @@ def test_image_build_rejects_a_base_image_outside_the_approved_registry(
             "IMAGE": "registry.example/weather/platform:test",
             "INTERNAL_REGISTRY": "registry.example",
             "PIP_INDEX_URL": "https://packages.example/simple",
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
         }
     )
     if os.name == "nt":
@@ -315,3 +318,46 @@ def test_image_build_rejects_a_base_image_outside_the_approved_registry(
 
     assert result.returncode == 78
     assert "approved internal registry" in result.stderr
+
+
+def test_image_build_rejects_a_package_index_outside_the_approved_origin(
+    tmp_path: Path,
+) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+    build_script = ROOT / "scripts/build_image.sh"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "registry.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
+            "PIP_INDEX_URL": "https://pypi.org/simple",
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
+        }
+    )
+    if os.name == "nt":
+        environment["BUILD_SCRIPT_WINDOWS"] = str(build_script)
+        command = [bash, "-lc", 'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"']
+    else:
+        command = [bash, str(build_script)]
+
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 78
+    assert "approved internal package mirror origin" in result.stderr

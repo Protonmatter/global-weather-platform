@@ -52,14 +52,16 @@ not receive production deployment credentials.
 
 Set these repository variables for `build-image.yml`:
 
-- `PYPI_MIRROR_URL`: approved internal Python mirror.
+- `PYPI_MIRROR_URL`: package-index URL under the approved internal mirror.
+- `PYPI_MIRROR_ORIGIN`: exact approved HTTPS origin for
+  `PYPI_MIRROR_URL`, without a path, query, fragment, or user information.
 - `INTERNAL_REGISTRY`: internal OCI registry host.
 - `PYTHON_BASE_IMAGE`: internally mirrored, digest-pinned base image whose
   repository is under `INTERNAL_REGISTRY`.
 
-The image build validates the complete normalized base-image reference and
-fails with exit code 78 if its registry component does not exactly match
-`INTERNAL_REGISTRY`.
+The image build validates both trust boundaries. It fails with exit code 78 if
+the complete normalized base-image reference is outside `INTERNAL_REGISTRY` or
+if `PYPI_MIRROR_URL` is outside `PYPI_MIRROR_ORIGIN`.
 
 The runner environment, rather than repository variables, supplies:
 

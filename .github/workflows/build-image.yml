@@ -21,12 +21,14 @@ jobs:
           test -n "${{ vars.INTERNAL_REGISTRY }}"
           test -n "${{ vars.PYTHON_BASE_IMAGE }}"
           test -n "${{ vars.PYPI_MIRROR_URL }}"
+          test -n "${{ vars.PYPI_MIRROR_ORIGIN }}"
           test -n "${INTERNAL_RELEASE_ATTEST_COMMAND:-}"
           test -f requirements/production.lock
           test -f requirements/ci.lock
       - name: Build wheelhouse from the internal mirror
         env:
           PIP_INDEX_URL: ${{ vars.PYPI_MIRROR_URL }}
+          PYPI_MIRROR_ORIGIN: ${{ vars.PYPI_MIRROR_ORIGIN }}
           IMAGE: ${{ vars.INTERNAL_REGISTRY }}/weather/platform:${{ github.sha }}
           BASE_IMAGE: ${{ vars.PYTHON_BASE_IMAGE }}
           INTERNAL_REGISTRY: ${{ vars.INTERNAL_REGISTRY }}

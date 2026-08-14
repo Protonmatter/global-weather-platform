@@ -152,6 +152,26 @@ def test_catalog_repairs_a_crashed_writer_before_a_later_instance_appends(tmp_pa
     assert later.list() == [retained, appended]
 
 
+def test_catalog_repairs_a_torn_tail_before_an_existing_instance_reads(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    mutation_id = uuid4()
+    catalog.register(retained, mutation_id=mutation_id)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    assert catalog.contains_mutation(
+        mutation_id,
+        sha256_digest(retained.model_dump_json().encode("utf-8")),
+    )
+    assert path.read_text(encoding="utf-8").endswith("\n")
+
+
 def test_catalog_rolls_back_a_partial_append_failure(tmp_path: Path, monkeypatch) -> None:
     path = tmp_path / "model-cycles.jsonl"
     catalog = ModelGuidanceCatalog(path)

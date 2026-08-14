@@ -71,6 +71,34 @@ def test_authoritative_audit_store_appends_and_replays(tmp_path) -> None:
     assert list(store.iter_events()) == [item]
 
 
+def test_first_ledger_append_fsyncs_the_parent_directory(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    fsynced: list[object] = []
+    monkeypatch.setattr(store, "_fsync_directory", fsynced.append)
+
+    store.append(valid_event(domain))
+
+    assert fsynced == [store.path.parent]
+
+
+def test_later_ledger_appends_do_not_repeat_parent_directory_fsync(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    store.append(valid_event(domain))
+    fsynced: list[object] = []
+    monkeypatch.setattr(store, "_fsync_directory", fsynced.append)
+
+    store.append(valid_event(domain))
+
+    assert fsynced == []
+
+
 def test_authoritative_audit_store_rejects_duplicate_event_identity(tmp_path) -> None:
     domain = audit_module()
     storage = import_module("weather_platform.storage.audit")
@@ -293,6 +321,26 @@ def test_failure_replaces_prepared_success_before_ledger_append(
 
     assert list(store.iter_events()) == [failed]
     assert not list(store.pending_events())
+
+
+def test_failure_is_recorded_when_success_preparation_never_published(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    failed = valid_event(domain).model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": domain.MutationResult.FAILED,
+            "detail": {"error_type": "OSError"},
+        }
+    )
+
+    store.commit_failure(failed.event_id, failed)
+
+    assert list(store.iter_events()) == [failed]
 
 
 def test_discard_terminal_removes_a_prepared_success(tmp_path, monkeypatch) -> None:

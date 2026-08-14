@@ -167,6 +167,33 @@ def test_initial_audit_failure_prevents_source_retention(tmp_path, monkeypatch) 
     assert not main.raw_store.exists(digest)
 
 
+def test_terminal_preparation_failure_records_failure_before_mutation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(
+        tmp_path,
+        monkeypatch,
+        raise_server_exceptions=False,
+    )
+    payload = b"terminal preparation failure"
+    digest = sha256_digest(payload)
+
+    def fail_prepare(_event) -> None:
+        raise OSError("audit outbox unavailable")
+
+    monkeypatch.setattr(main.audit_store, "prepare_terminal", fail_prepare)
+
+    response = client.put(f"/v1/source-records/{digest}", content=payload)
+
+    assert response.status_code == 500
+    assert not main.raw_store.exists(digest)
+    attempted, failed = main.audit_store.iter_events()
+    assert attempted.result == MutationResult.ATTEMPTED
+    assert failed.result == MutationResult.FAILED
+    assert failed.detail == {"error_type": "OSError"}
+
+
 def test_terminal_audit_append_failure_preserves_authoritative_success(
     tmp_path,
     monkeypatch,
@@ -736,6 +763,32 @@ def test_raw_evidence_read_requires_service_identity_in_production(
     response = client.get(f"/v1/source-records/{digest}", headers=headers)
     assert response.status_code == 200
     assert response.content == payload
+
+
+def test_authoritative_audit_history_requires_service_identity_in_production(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, credential = isolated_client(tmp_path, monkeypatch, production=True)
+    assert credential is not None
+    payload = b"audit history evidence"
+    digest = sha256_digest(payload)
+    headers = service_headers(credential)
+    retention = client.put(
+        f"/v1/source-records/{digest}",
+        content=payload,
+        headers=headers,
+    )
+    assert retention.status_code == 201
+
+    assert client.get("/v1/audit-events").status_code == 401
+    response = client.get("/v1/audit-events?limit=2", headers=headers)
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert [event["result"] for event in events] == ["succeeded", "attempted"]
+    assert {event["resource_id"] for event in events} == {digest}
+    assert all(event["request_id"] for event in events)
 
 
 def test_invalid_request_identifier_is_replaced_with_a_uuid(tmp_path, monkeypatch) -> None:
