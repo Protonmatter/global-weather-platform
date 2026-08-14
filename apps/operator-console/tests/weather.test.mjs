@@ -20,6 +20,7 @@ import {
   RequestBodyError,
   safeUpstreamResponseHeaders,
   sha256Text,
+  sourceRecordRetentionResponse,
   toControlPlaneObservation,
 } from "../lib/weather.ts";
 import { bestEffortAudit } from "../lib/audit-policy.ts";
@@ -225,6 +226,50 @@ test("control-plane proxy preserves safe authentication and method headers", () 
   assert.equal(safe.get("allow"), "GET, HEAD");
   assert.equal(safe.get("www-authenticate"), 'Bearer realm="weather"');
   assert.equal(safe.get("set-cookie"), null);
+});
+
+test("source retention responses preserve trusted correlation and audit headers", async () => {
+  const requestId = "632cc37d-bc70-41c2-8302-74ded8e58031";
+  const digest = `sha256:${"d".repeat(64)}`;
+  const upstream = new Response(JSON.stringify({ upstream: true }), {
+    status: 201,
+    headers: {
+      "cache-control": "private, no-store",
+      "content-type": "application/vnd.weather+json",
+      etag: '"upstream-representation"',
+      "set-cookie": "session=must-not-escape",
+      "x-request-id": requestId,
+      "x-weather-edge-audit-status": "recorded",
+    },
+  });
+
+  const response = sourceRecordRetentionResponse(
+    upstream,
+    digest,
+    37,
+    false,
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get("x-request-id"), requestId);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("x-weather-edge-audit-status"), "failed");
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.equal(response.headers.get("etag"), null);
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.deepEqual(await response.json(), {
+    source_record_digest: digest,
+    status: "retained",
+    byte_length: 37,
+  });
+
+  const auditedResponse = sourceRecordRetentionResponse(
+    upstream,
+    digest,
+    37,
+    true,
+  );
+  assert.equal(auditedResponse.headers.get("x-weather-edge-audit-status"), null);
 });
 
 test("control-plane mutations reject short service credentials", async () => {

@@ -136,8 +136,7 @@ class JsonlObservationStore:
                 expected = {
                     str(item["observation_id"]): str(item["content_digest"])
                     for item in payload["observations"]
-                    if isinstance(item, dict)
-                    and set(item) == {"content_digest", "observation_id"}
+                    if isinstance(item, dict) and set(item) == {"content_digest", "observation_id"}
                 }
                 if len(expected) != len(payload["observations"]):
                     return False

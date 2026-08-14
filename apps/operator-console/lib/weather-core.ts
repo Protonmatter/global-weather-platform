@@ -234,7 +234,10 @@ export async function readBoundedRequestBody(
   return payload.buffer;
 }
 
-export function safeUpstreamResponseHeaders(source: Headers) {
+export function safeUpstreamResponseHeaders(
+  source: Headers,
+  edgeAuditStatus?: "failed",
+) {
   const safe = new Headers();
   for (const name of SAFE_RESPONSE_HEADERS) {
     const value = source.get(name);
@@ -244,7 +247,30 @@ export function safeUpstreamResponseHeaders(source: Headers) {
   if (location !== null && (location === "/" || /^\/[^/\\]/.test(location))) {
     safe.set("location", location);
   }
+  if (edgeAuditStatus) safe.set("x-weather-edge-audit-status", edgeAuditStatus);
   return safe;
+}
+
+export function sourceRecordRetentionResponse(
+  upstream: Response,
+  digest: string,
+  byteLength: number,
+  auditRecorded: boolean,
+) {
+  const headers = safeUpstreamResponseHeaders(
+    upstream.headers,
+    auditRecorded ? undefined : "failed",
+  );
+  headers.delete("content-type");
+  headers.delete("etag");
+  return Response.json(
+    {
+      source_record_digest: digest,
+      status: upstream.status === 201 ? "retained" : "already_retained",
+      byte_length: byteLength,
+    },
+    { status: upstream.status, headers },
+  );
 }
 
 export async function proxyToControlPlane(
