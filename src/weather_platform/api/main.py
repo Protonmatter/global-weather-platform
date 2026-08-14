@@ -1,6 +1,7 @@
 import sys
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path as FilePath
 from types import ModuleType
@@ -89,6 +90,30 @@ async def request_identity_middleware(
     return response
 
 
+def _mutation_event(
+    request: Request,
+    *,
+    actor: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    result: MutationResult,
+    detail: dict[str, Any] | None = None,
+) -> MutationAuditEvent:
+    return MutationAuditEvent(
+        event_id=uuid.uuid4(),
+        request_id=_request_id_from_request(request),
+        actor=actor,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        result=result,
+        occurred_at=datetime.now(UTC),
+        software_version=__version__,
+        detail=detail or {},
+    )
+
+
 def _record_mutation_event(
     request: Request,
     *,
@@ -100,17 +125,36 @@ def _record_mutation_event(
     detail: dict[str, Any] | None = None,
 ) -> None:
     audit_store.append(
-        MutationAuditEvent(
-            event_id=uuid.uuid4(),
-            request_id=_request_id_from_request(request),
+        _mutation_event(
+            request,
             actor=actor,
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
             result=result,
-            occurred_at=datetime.now(UTC),
-            software_version=__version__,
-            detail=detail or {},
+            detail=detail,
+        )
+    )
+
+
+def _prepare_success_event(
+    request: Request,
+    *,
+    actor: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    detail: dict[str, Any],
+) -> uuid.UUID:
+    return audit_store.prepare_terminal(
+        _mutation_event(
+            request,
+            actor=actor,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            result=MutationResult.SUCCEEDED,
+            detail=detail,
         )
     )
 
@@ -133,6 +177,49 @@ def _record_failed_mutation(
         result=MutationResult.FAILED,
         detail={"error_type": type(error).__name__},
     )
+
+
+@contextmanager
+def _audited_mutation(
+    request: Request,
+    *,
+    actor: str,
+    action: str,
+    resource_type: str,
+    resource_id: str,
+    detail: dict[str, Any],
+) -> Iterator[None]:
+    _record_mutation_event(
+        request,
+        actor=actor,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        result=MutationResult.ATTEMPTED,
+        detail=detail,
+    )
+    terminal_event_id = _prepare_success_event(
+        request,
+        actor=actor,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        detail=detail,
+    )
+    try:
+        yield
+    except Exception as error:
+        audit_store.discard_terminal(terminal_event_id)
+        _record_failed_mutation(
+            request,
+            actor=actor,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            error=error,
+        )
+        raise
+    audit_store.commit_terminal(terminal_event_id)
 
 
 def _remove_route(path: str, method: str) -> None:
@@ -165,16 +252,14 @@ def create_observation(request: Request, observation: Observation) -> dict[str, 
         "phenomenon": observation.phenomenon,
         "quality_disposition": observation.quality_disposition.value,
     }
-    _record_mutation_event(
+    with _audited_mutation(
         request,
         actor=actor,
         action="observation.admitted",
         resource_type="observation",
         resource_id=resource_id,
-        result=MutationResult.ATTEMPTED,
         detail=detail,
-    )
-    try:
+    ):
         if observation.quality_disposition.value == "reject":
             raise HTTPException(
                 status_code=422,
@@ -183,25 +268,6 @@ def create_observation(request: Request, observation: Observation) -> dict[str, 
         _core._require_retained_source(observation.provenance.source_record_digest)
         admitted = _core._with_platform_verification(observation)
         _core._admit_observations([admitted])
-    except Exception as error:
-        _record_failed_mutation(
-            request,
-            actor=actor,
-            action="observation.admitted",
-            resource_type="observation",
-            resource_id=resource_id,
-            error=error,
-        )
-        raise
-    _record_mutation_event(
-        request,
-        actor=actor,
-        action="observation.admitted",
-        resource_type="observation",
-        resource_id=resource_id,
-        result=MutationResult.SUCCEEDED,
-        detail=detail,
-    )
     return {"observation_id": resource_id, "status": "accepted"}
 
 
@@ -213,36 +279,15 @@ async def create_source_record(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
     digest = sha256_digest(payload)
     detail = {"byte_length": len(payload)}
-    _record_mutation_event(
+    with _audited_mutation(
         request,
         actor=actor,
         action="source_record.ingested",
         resource_type="source_record",
         resource_id=digest,
-        result=MutationResult.ATTEMPTED,
         detail=detail,
-    )
-    try:
+    ):
         response = await run_in_threadpool(_core._ingest_and_store, payload)
-    except Exception as error:
-        _record_failed_mutation(
-            request,
-            actor=actor,
-            action="source_record.ingested",
-            resource_type="source_record",
-            resource_id=digest,
-            error=error,
-        )
-        raise
-    _record_mutation_event(
-        request,
-        actor=actor,
-        action="source_record.ingested",
-        resource_type="source_record",
-        resource_id=digest,
-        result=MutationResult.SUCCEEDED,
-        detail=detail,
-    )
     return response
 
 
@@ -258,36 +303,15 @@ async def put_source_record(
     if not payload:
         raise HTTPException(status_code=422, detail="source record payload must not be empty")
     detail = {"byte_length": len(payload)}
-    _record_mutation_event(
+    with _audited_mutation(
         request,
         actor=actor,
         action="source_record.retained",
         resource_type="source_record",
         resource_id=digest,
-        result=MutationResult.ATTEMPTED,
         detail=detail,
-    )
-    try:
+    ):
         already_retained = await run_in_threadpool(_core._verify_and_retain, payload, digest)
-    except Exception as error:
-        _record_failed_mutation(
-            request,
-            actor=actor,
-            action="source_record.retained",
-            resource_type="source_record",
-            resource_id=digest,
-            error=error,
-        )
-        raise
-    _record_mutation_event(
-        request,
-        actor=actor,
-        action="source_record.retained",
-        resource_type="source_record",
-        resource_id=digest,
-        result=MutationResult.SUCCEEDED,
-        detail=detail,
-    )
     return JSONResponse(
         status_code=status.HTTP_200_OK if already_retained else status.HTTP_201_CREATED,
         content={"source_record_digest": digest, "status": "retained"},
@@ -317,36 +341,15 @@ def register_model_cycle(request: Request, cycle: ModelGuidanceCycle) -> dict[st
         "completeness": str(summary["completeness"]),
         "guidance_origin": cycle.guidance_origin.value,
     }
-    _record_mutation_event(
+    with _audited_mutation(
         request,
         actor=actor,
         action="model_cycle.catalogued",
         resource_type="model_cycle",
         resource_id=resource_id,
-        result=MutationResult.ATTEMPTED,
         detail=detail,
-    )
-    try:
+    ):
         _core.model_catalog.register(cycle)
-    except Exception as error:
-        _record_failed_mutation(
-            request,
-            actor=actor,
-            action="model_cycle.catalogued",
-            resource_type="model_cycle",
-            resource_id=resource_id,
-            error=error,
-        )
-        raise
-    _record_mutation_event(
-        request,
-        actor=actor,
-        action="model_cycle.catalogued",
-        resource_type="model_cycle",
-        resource_id=resource_id,
-        result=MutationResult.SUCCEEDED,
-        detail=detail,
-    )
     return {**summary, "status": "catalogued"}
 
 

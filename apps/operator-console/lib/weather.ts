@@ -13,11 +13,13 @@ type OperationalRuntimeEnv = WeatherRuntimeEnv & {
 };
 
 const SAFE_RESPONSE_HEADERS = [
+  "allow",
   "cache-control",
   "content-type",
   "etag",
   "last-modified",
   "retry-after",
+  "www-authenticate",
   "x-request-id",
 ] as const;
 

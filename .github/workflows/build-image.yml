@@ -44,6 +44,7 @@ jobs:
             --source deploy/k8s/weather-acquisition.yaml \
             --output release/weather-acquisition.yaml \
             --image-reference-file release/image-ref.txt \
+            --expected-repository "${{ vars.INTERNAL_REGISTRY }}/weather/platform" \
             --metadata release/release-metadata.json \
             --git-sha "${GITHUB_SHA}" \
             --production-lock requirements/production.lock \

@@ -17,6 +17,7 @@ import {
   proxyToControlPlane,
   readBoundedRequestBody,
   RequestBodyError,
+  safeUpstreamResponseHeaders,
   sha256Text,
   toControlPlaneObservation,
 } from "../lib/weather.ts";
@@ -209,6 +210,20 @@ test("control-plane proxy allowlists headers and replaces identity", async () =>
     globalThis.fetch = originalFetch;
     runtime.__WEATHER_ENV__ = originalEnvironment;
   }
+});
+
+test("control-plane proxy preserves safe authentication and method headers", () => {
+  const safe = safeUpstreamResponseHeaders(
+    new Headers({
+      allow: "GET, HEAD",
+      "set-cookie": "session=secret",
+      "www-authenticate": 'Bearer realm="weather"',
+    }),
+  );
+
+  assert.equal(safe.get("allow"), "GET, HEAD");
+  assert.equal(safe.get("www-authenticate"), 'Bearer realm="weather"');
+  assert.equal(safe.get("set-cookie"), null);
 });
 
 test("control-plane mutations reject short service credentials", async () => {

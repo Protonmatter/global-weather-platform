@@ -14,9 +14,17 @@ def test_image_reference_requires_immutable_digest() -> None:
         "registry.example/weather/platform:latest",
         "registry.example/weather/platform@sha256:" + "0" * 64,
         "sha256:" + "a" * 64,
+        "https://registry.example/weather/platform@sha256:" + "a" * 64,
+        "registry.example//weather/platform@sha256:" + "a" * 64,
     ):
         with pytest.raises(ValueError):
             validate_image_reference(invalid)
+
+    with pytest.raises(ValueError, match="expected repository"):
+        validate_image_reference(
+            valid,
+            expected_repository="registry.example/other/platform",
+        )
 
 
 def test_release_renderer_replaces_source_placeholder(tmp_path: Path) -> None:

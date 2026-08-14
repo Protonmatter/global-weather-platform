@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime
 from importlib import import_module
 from uuid import UUID, uuid4
@@ -68,3 +69,27 @@ def test_authoritative_audit_store_rejects_duplicate_event_identity(tmp_path) ->
     store.append(item)
     with pytest.raises(ValueError, match="duplicate"):
         store.append(item)
+
+
+def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    attempted = valid_event(domain)
+    succeeded = attempted.model_copy(
+        update={
+            "event_id": uuid4(),
+            "result": domain.MutationResult.SUCCEEDED,
+        }
+    )
+    store.append(attempted)
+    terminal_id = store.prepare_terminal(succeeded)
+
+    def partial_write(descriptor: int, payload: bytes) -> None:
+        os.write(descriptor, payload[: len(payload) // 2])
+        raise OSError("audit ledger is full")
+
+    monkeypatch.setattr(store, "_write_all", partial_write)
+    store.commit_terminal(terminal_id)
+
+    assert list(store.iter_events()) == [attempted, succeeded]

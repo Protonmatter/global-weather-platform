@@ -11,7 +11,7 @@ they require internal registries, signing policy, or security tooling.
 | Workflow | Runner | Triggers | Required configuration |
 | --- | --- | --- | --- |
 | `ci-bootstrap.yml` | GitHub-hosted `ubuntu-latest` | PR, push to `main` | none; uses locked project requirements from public PyPI |
-| `pr-fast.yml` | GitHub-hosted `ubuntu-latest` | PR, push to `main` | none; installs `.[dev,eccodes]` |
+| `pr-fast.yml` | GitHub-hosted `ubuntu-latest` | PR, push to `main` | none; installs the hash-checked CI lock and the project without dependency resolution |
 | `spec-validation.yml` | GitHub-hosted `ubuntu-latest` | PR touching specifications, push to `main` | none |
 | `operator-console.yml` | GitHub-hosted `ubuntu-latest` | operator-console PR/push changes | none; uses the committed npm lockfile |
 | `build-image.yml` | `self-hosted, linux, weather-build` | push to `main`, `v*` tags, manual | internal registry/base-image/mirror variables, release attestation command, Docker |
@@ -67,7 +67,8 @@ Both privileged jobs fail closed when their required configuration is absent.
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev,eccodes]'
+.venv/bin/python -m pip install --require-hashes -r requirements/ci.lock
+.venv/bin/python -m pip install --no-build-isolation --no-deps -e .
 PATH="$PWD/.venv/bin:$PATH" make lint typecheck test validate
 
 cd apps/operator-console

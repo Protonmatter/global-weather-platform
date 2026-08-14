@@ -138,6 +138,46 @@ def test_release_renderer_requires_a_real_digest(tmp_path) -> None:
     for invalid in (
         "registry.example/weather/platform:latest",
         "registry.example/weather/platform@sha256:" + "0" * 64,
+        "https://registry.example/weather/platform@sha256:" + "b" * 64,
+        "registry.example//weather/platform@sha256:" + "b" * 64,
     ):
         with pytest.raises(ValueError):
             module.validate_image_reference(invalid)
+
+    with pytest.raises(ValueError, match="expected repository"):
+        module.validate_image_reference(
+            image,
+            expected_repository="registry.example/other/platform",
+        )
+
+
+def test_release_workflow_binds_evidence_to_the_built_repository() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/build-image.yml").read_text("utf-8"))
+    render_step = next(
+        step
+        for step in workflow["jobs"]["build"]["steps"]
+        if step["name"] == "Render immutable release evidence"
+    )
+    assert "--expected-repository" in render_step["run"]
+    assert "${{ vars.INTERNAL_REGISTRY }}/weather/platform" in render_step["run"]
+
+
+def test_integration_workflow_installs_from_the_checked_lock() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/weather-integration.yml").read_text("utf-8")
+    )
+    install_step = next(
+        step
+        for step in workflow["jobs"]["integration"]["steps"]
+        if step["name"] == "Install with ecCodes"
+    )
+    command = install_step["run"]
+    assert "--require-hashes" in command
+    assert "requirements/ci.lock" in command
+    assert "--no-build-isolation" in command
+    assert "--no-deps" in command
+
+
+def test_runtime_image_installs_the_locked_eccodes_extra() -> None:
+    dockerfile = (ROOT / "deploy/docker/Dockerfile").read_text(encoding="utf-8")
+    assert "global-weather-platform[eccodes]" in dockerfile

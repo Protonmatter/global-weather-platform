@@ -27,6 +27,7 @@
 - Audit events are immutable and include unique event ID, request ID, actor, action, resource type, resource ID, result, occurrence time, software version, and constrained detail.
 - Persistent observation, source-record, and model-cycle mutations record `attempted` followed by terminal `succeeded` or `failed` events.
 - Failure to persist the initial audit event blocks canonical state mutation.
+- Terminal successes are durably staged before canonical state changes; an atomic outbox commit remains authoritative if compaction into the JSONL ledger cannot allocate additional space.
 - Request UUIDs are generated or validated, attached to request state, returned through `x-request-id`, and bound to audit events.
 
 ### Protected evidence access

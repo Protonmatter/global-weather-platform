@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from weather_platform.api import main
 from weather_platform.config import Settings
+from weather_platform.domain.audit import MutationResult
 from weather_platform.provenance import sha256_digest
 from weather_platform.storage.audit import AuthoritativeAuditStore
 from weather_platform.storage.jsonl import JsonlObservationStore
@@ -101,6 +102,31 @@ def test_initial_audit_failure_prevents_source_retention(tmp_path, monkeypatch) 
 
     assert response.status_code == 500
     assert not main.raw_store.exists(digest)
+
+
+def test_terminal_audit_append_failure_preserves_authoritative_success(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client, _ = isolated_client(tmp_path, monkeypatch)
+    payload = b"terminal audit outbox"
+    digest = sha256_digest(payload)
+    append = main.audit_store.append
+
+    def fail_terminal_append(event) -> None:
+        if event.result == MutationResult.SUCCEEDED:
+            raise OSError("audit ledger is full")
+        append(event)
+
+    monkeypatch.setattr(main.audit_store, "append", fail_terminal_append)
+    response = client.put(f"/v1/source-records/{digest}", content=payload)
+
+    assert response.status_code == 201
+    assert main.raw_store.retrieve(digest) == payload
+    assert [event.result for event in main.audit_store.iter_events()] == [
+        MutationResult.ATTEMPTED,
+        MutationResult.SUCCEEDED,
+    ]
 
 
 def test_raw_evidence_read_requires_service_identity_in_production(

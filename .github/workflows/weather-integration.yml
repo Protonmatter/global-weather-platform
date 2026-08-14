@@ -39,7 +39,16 @@ jobs:
       - name: Create isolated environment
         run: python -m venv .venv
       - name: Install with ecCodes
-        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+        run: |
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/ci.lock
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --no-build-isolation \
+            --no-deps \
+            --editable .
       - name: Run fixture-driven functional and integration paths
         run: |
           mkdir -p artifacts
