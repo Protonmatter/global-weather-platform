@@ -203,6 +203,19 @@ def test_continuous_delivery_requires_the_complete_ci_gate() -> None:
     assert image["jobs"]["build"]["environment"] == "release"
 
 
+def test_lock_compiler_bootstrap_is_hashed_and_not_double_triggered() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/python-lock.yml").read_text("utf-8"))
+    triggers = workflow.get("on", workflow.get(True))
+    assert "push" not in triggers
+    install_step = next(
+        step
+        for step in workflow["jobs"]["validate"]["steps"]
+        if step["name"] == "Install locked compiler"
+    )
+    assert "--require-hashes" in install_step["run"]
+    assert "requirements/compiler.lock" in install_step["run"]
+
+
 def test_end_to_end_workflow_uses_pinned_graphs_and_built_worker() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/end-to-end.yml").read_text("utf-8"))
     steps = workflow["jobs"]["verify"]["steps"]

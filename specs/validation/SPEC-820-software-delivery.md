@@ -51,8 +51,8 @@ the built operator-console Worker, and verifies canonical reads plus authoritati
 audit lifecycle events. It does not contact weather providers or production
 services.
 
-Python application manifests declare bounded compatibility ranges while release
-and CI installation use exact SHA-256-checked lock graphs. JavaScript direct
+Python application manifests declare bounded compatibility ranges while release,
+CI, and the lock compiler bootstrap use exact SHA-256-checked lock graphs. JavaScript direct
 dependencies are exact, the npm lock retains registry integrity values, language
 runtimes are repository-pinned, and third-party workflow actions use immutable
 commit references. Release installation uses a job-local Python environment,

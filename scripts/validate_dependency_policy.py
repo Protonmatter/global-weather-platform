@@ -67,8 +67,12 @@ def _locked_names(path: Path, failures: list[str]) -> set[str]:
 
 
 def _validate_python_locks(failures: list[str]) -> None:
+    compiler = _locked_names(ROOT / "requirements/compiler.lock", failures)
     production = _locked_names(ROOT / "requirements/production.lock", failures)
     ci = _locked_names(ROOT / "requirements/ci.lock", failures)
+    missing_compiler = sorted({"pip", "pip-tools"} - compiler)
+    if missing_compiler:
+        failures.append(f"compiler lock omits bootstrap tools: {', '.join(missing_compiler)}")
     missing = sorted(production - ci)
     if missing:
         failures.append(f"CI lock omits production dependencies: {', '.join(missing)}")

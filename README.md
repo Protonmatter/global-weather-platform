@@ -73,7 +73,10 @@ Production mutations and raw-source retrieval require both the control-plane bea
 
 ## Reproducible dependencies
 
-`requirements/production.lock` and `requirements/ci.lock` are generated with Python 3.12 and the pinned compiler declared in `.github/workflows/python-lock.yml`. Both files contain package hashes. The lock workflow regenerates them and fails when checked files differ.
+`requirements/compiler.lock`, `requirements/production.lock`, and
+`requirements/ci.lock` are generated with Python 3.12. The compiler bootstrap
+and both application graphs contain package hashes. The lock workflow
+regenerates all three and fails when checked files differ.
 
 Python and Node.js build patches are pinned in `.python-version` and
 `apps/operator-console/.nvmrc`. Operator-console direct dependencies are exact,
@@ -84,7 +87,7 @@ update-policy invariants.
 Regenerate locally with:
 
 ```bash
-python3.12 -m pip install 'pip==26.1.2' 'pip-tools==7.6.0'
+python3.12 -m pip install --require-hashes -r requirements/compiler.lock
 bash scripts/compile_requirements.sh requirements
 ```
 

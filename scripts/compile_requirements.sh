@@ -17,6 +17,11 @@ compile_common=(
 
 "${python_bin}" -m piptools compile \
   "${compile_common[@]}" \
+  --output-file "${output_dir}/compiler.lock" \
+  requirements/compiler.in
+
+"${python_bin}" -m piptools compile \
+  "${compile_common[@]}" \
   --extra=build \
   --extra=eccodes \
   --output-file "${output_dir}/production.lock" \

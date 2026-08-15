@@ -646,6 +646,9 @@
     },
     "TEST-DEPS-0001": {
       "evidence": [
+        "requirements/compiler.in",
+        "requirements/compiler.lock",
+        "scripts/compile_requirements.sh",
         "scripts/validate_dependency_policy.py",
         "scripts/build_image.sh",
         "tests/contract/test_dependency_policy.py",

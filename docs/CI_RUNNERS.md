@@ -85,8 +85,9 @@ Both privileged jobs fail closed when their required configuration is absent.
 
 ## Dependency version handling
 
-- Python manifests use bounded compatibility ranges; `production.lock` and
-  `ci.lock` contain the exact SHA-256-checked resolution.
+- Python manifests use bounded compatibility ranges; `compiler.lock`,
+  `production.lock`, and `ci.lock` contain exact SHA-256-checked resolutions,
+  including the tools that regenerate those locks.
 - Operator-console direct dependencies are exact and `package-lock.json`
   preserves registry SHA-512 integrity values.
 - `.python-version`, `apps/operator-console/.nvmrc`, and immutable GitHub

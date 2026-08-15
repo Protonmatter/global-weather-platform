@@ -43,3 +43,24 @@ Complete CI.
 def test_dependabot_uses_the_standing_dependency_requirement() -> None:
     validator = load_validator()
     assert validator.validate_pull_request("", "dependabot[bot]") == []
+
+
+def test_pull_request_rejects_unknown_and_mismatched_registry_ids() -> None:
+    validator = load_validator()
+    unknown = """## Requirement IDs
+
+- SPEC-999
+- FAKE-REQ-9999
+"""
+    failures = validator.validate_pull_request(unknown, "engineer")
+    assert "unknown specification IDs: SPEC-999" in failures
+    assert "unknown requirement IDs: FAKE-REQ-9999" in failures
+
+    mismatched = """## Requirement IDs
+
+- SPEC-100
+- DEL-CI-0002
+"""
+    assert validator.validate_pull_request(mismatched, "engineer") == [
+        "requirement IDs do not belong to the named specifications: DEL-CI-0002"
+    ]
