@@ -25,7 +25,7 @@ requirements:
     verification: [TEST-RES-0001]
     release_gate: operational
   - id: ARCH-AUD-0004
-    statement: Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger and MUST recover derived identity-index state from the append-only ledger after interrupted writes or truncation.
+    statement: Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger, bounded history reads MUST constrain ledger work to their requested limit, and derived index state MUST recover from the append-only ledger after interrupted writes or truncation.
     priority: critical
     verification: [TEST-AUDIT-0001]
     release_gate: operational
@@ -33,4 +33,4 @@ requirements:
 
 # System architecture
 
-The architecture separates external acquisition, ingestion, scientific computation, application, management, public distribution, and research trust zones. Only acquisition workers may access allowlisted external data providers. The authoritative mutation ledger remains append-only; a durable, incrementally synchronized identity index keeps write-path duplicate detection independent of historical ledger length and is rebuilt from ledger evidence when its checkpoint is ahead of the repaired ledger.
+The architecture separates external acquisition, ingestion, scientific computation, application, management, public distribution, and research trust zones. Only acquisition workers may access allowlisted external data providers. The authoritative mutation ledger remains append-only; a durable, incrementally synchronized chronological identity index keeps write-path duplicate detection and bounded recent-history reads independent of historical ledger length and is rebuilt from ledger evidence when its checkpoint is ahead of the repaired ledger.

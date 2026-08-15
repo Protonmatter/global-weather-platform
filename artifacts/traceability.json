@@ -35,7 +35,7 @@
           "id": "ARCH-AUD-0004",
           "priority": "critical",
           "release_gate": "operational",
-          "statement": "Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger and MUST recover derived identity-index state from the append-only ledger after interrupted writes or truncation.",
+          "statement": "Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger, bounded history reads MUST constrain ledger work to their requested limit, and derived index state MUST recover from the append-only ledger after interrupted writes or truncation.",
           "verification": [
             "TEST-AUDIT-0001"
           ]
@@ -115,6 +115,15 @@
           "statement": "Every observation MUST carry an explicit quality disposition and quality flags.",
           "verification": [
             "TEST-SCHEMA-0001"
+          ]
+        },
+        {
+          "id": "DATA-ING-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Canonical observation batches and their request-specific completion receipts MUST use one ordered recoverable commit so a receipt cannot become authoritative before every observation in its batch.",
+          "verification": [
+            "TEST-INGEST-0001"
           ]
         }
       ],
@@ -577,7 +586,8 @@
     "TEST-AUDIT-0001": {
       "evidence": [
         "src/weather_platform/storage/audit.py",
-        "tests/unit/test_audit_domain.py"
+        "tests/unit/test_audit_domain.py",
+        "tests/contract/test_operationalization_routes.py"
       ],
       "status": "implemented"
     },
@@ -679,6 +689,15 @@
         "tests/unit/test_eccodes_backend.py",
         "tests/contract/test_weather_schemas.py",
         "tests/integration/test_weather_vertical_slice.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-INGEST-0001": {
+      "evidence": [
+        "src/weather_platform/api/control_plane_core.py",
+        "src/weather_platform/storage/jsonl.py",
+        "tests/unit/test_storage.py",
+        "tests/contract/test_operationalization_routes.py"
       ],
       "status": "implemented"
     },

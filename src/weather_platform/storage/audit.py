@@ -132,17 +132,33 @@ class AuthoritativeAuditStore:
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS audit_event_ids (
-                    event_id TEXT PRIMARY KEY,
-                    event_json TEXT NOT NULL
-                )
-                """
-            )
-            connection.execute(
-                """
                 CREATE TABLE IF NOT EXISTS audit_index_metadata (
                     key TEXT PRIMARY KEY,
                     value INTEGER NOT NULL
+                )
+                """
+            )
+            columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(audit_event_ids)")
+            }
+            required_columns = {
+                "event_id",
+                "event_json",
+                "occurred_at_utc",
+                "result_order",
+            }
+            if columns and not required_columns.issubset(columns):
+                # This is a derived cache. Rebuild once when upgrading from the
+                # identity-only schema rather than replaying on every read.
+                connection.execute("DROP TABLE audit_event_ids")
+                connection.execute("DELETE FROM audit_index_metadata")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_event_ids (
+                    event_id TEXT PRIMARY KEY,
+                    event_json TEXT NOT NULL,
+                    occurred_at_utc TEXT NOT NULL,
+                    result_order INTEGER NOT NULL
                 )
                 """
             )
@@ -193,8 +209,15 @@ class AuthoritativeAuditStore:
                     if existing is not None and str(existing[0]) != encoded:
                         raise ValueError(f"conflicting audit event id {event.event_id}")
                     connection.execute(
-                        "INSERT OR IGNORE INTO audit_event_ids(event_id, event_json) VALUES (?, ?)",
-                        (str(event.event_id), encoded),
+                        "INSERT OR IGNORE INTO audit_event_ids("
+                        "event_id, event_json, occurred_at_utc, result_order"
+                        ") VALUES (?, ?, ?, ?)",
+                        (
+                            str(event.event_id),
+                            encoded,
+                            event.occurred_at.astimezone(UTC).isoformat(timespec="microseconds"),
+                            0 if event.result == MutationResult.ATTEMPTED else 1,
+                        ),
                     )
                     indexed_size = line_end
 
@@ -530,4 +553,42 @@ class AuthoritativeAuditStore:
                     str(event.event_id),
                 ),
             )
+        yield from snapshot
+
+    def iter_recent_events(self, limit: int) -> Iterator[MutationAuditEvent]:
+        """Return newest events with ledger work bounded by the requested limit."""
+
+        if limit < 1 or limit > 1_000:
+            raise ValueError("limit must be between 1 and 1000")
+        with self._transaction(), self._event_index() as connection:
+            self._synchronize_event_index(connection)
+            rows = connection.execute(
+                "SELECT event_json FROM audit_event_ids "
+                "ORDER BY occurred_at_utc DESC, result_order DESC, event_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            events = {
+                event.event_id: event
+                for row in rows
+                for event in [MutationAuditEvent.model_validate_json(str(row[0]))]
+            }
+            for committed_event in self._iter_committed_events():
+                indexed = connection.execute(
+                    "SELECT event_json FROM audit_event_ids WHERE event_id = ?",
+                    (str(committed_event.event_id),),
+                ).fetchone()
+                if indexed is not None:
+                    ledger_event = MutationAuditEvent.model_validate_json(str(indexed[0]))
+                    if ledger_event != committed_event:
+                        raise ValueError(f"conflicting audit event id {committed_event.event_id}")
+                events[committed_event.event_id] = committed_event
+            snapshot = sorted(
+                events.values(),
+                key=lambda event: (
+                    event.occurred_at,
+                    0 if event.result == MutationResult.ATTEMPTED else 1,
+                    str(event.event_id),
+                ),
+                reverse=True,
+            )[:limit]
         yield from snapshot

@@ -50,6 +50,14 @@ verifications:
     evidence:
       - src/weather_platform/storage/audit.py
       - tests/unit/test_audit_domain.py
+      - tests/contract/test_operationalization_routes.py
+  TEST-INGEST-0001:
+    status: implemented
+    evidence:
+      - src/weather_platform/api/control_plane_core.py
+      - src/weather_platform/storage/jsonl.py
+      - tests/unit/test_storage.py
+      - tests/contract/test_operationalization_routes.py
   TEST-CONTRACT-0001:
     status: implemented
     evidence:

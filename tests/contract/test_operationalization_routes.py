@@ -388,11 +388,13 @@ def test_ingestion_marker_is_not_published_before_observation_append(
     observation = main._core._with_platform_verification(Observation.model_validate(record))
     mutation_id = uuid4()
     source_digest = observation.provenance.source_record_digest
-    monkeypatch.setattr(
-        main.store,
-        "append",
-        lambda _observation: (_ for _ in ()).throw(OSError("simulated append failure")),
-    )
+    write_all = main.store._write_all
+
+    def fail_batch_append(descriptor: int, encoded: bytes) -> None:
+        write_all(descriptor, encoded[: len(encoded) // 2])
+        raise OSError("simulated append failure")
+
+    monkeypatch.setattr(main.store, "_write_all", fail_batch_append)
 
     with pytest.raises(OSError, match="append failure"):
         main._core._admit_observations(
@@ -402,6 +404,7 @@ def test_ingestion_marker_is_not_published_before_observation_append(
         )
 
     assert not main.store.contains_ingestion_mutation(mutation_id, source_digest)
+    assert list(main.store.iter_observations()) == []
 
 
 def test_restart_reconciles_model_cycle_appended_by_the_same_mutation(
@@ -782,6 +785,11 @@ def test_authoritative_audit_history_requires_service_identity_in_production(
     assert retention.status_code == 201
 
     assert client.get("/v1/audit-events").status_code == 401
+    monkeypatch.setattr(
+        main.audit_store,
+        "iter_events",
+        lambda: (_ for _ in ()).throw(AssertionError("full ledger replay")),
+    )
     response = client.get("/v1/audit-events?limit=2", headers=headers)
 
     assert response.status_code == 200

@@ -1,5 +1,6 @@
 import os
-from datetime import UTC, datetime
+import sqlite3
+from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from uuid import UUID, uuid4
 
@@ -151,6 +152,76 @@ def test_audit_identity_index_rebuilds_after_ledger_truncation(tmp_path) -> None
         first.event_id,
         replacement.event_id,
     }
+
+
+def test_recent_audit_query_does_not_replay_the_full_ledger(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    older = valid_event(domain)
+    newer = valid_event(domain).model_copy(
+        update={"occurred_at": older.occurred_at + timedelta(minutes=1)}
+    )
+    store.append(older)
+    store.append(newer)
+
+    def reject_full_replay() -> None:
+        raise AssertionError("bounded audit reads must not replay the full ledger")
+
+    monkeypatch.setattr(store, "_iter_ledger_events", reject_full_replay)
+
+    assert list(store.iter_recent_events(1)) == [newer]
+
+
+def test_recent_audit_query_migrates_the_identity_only_index(tmp_path) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    event = valid_event(domain)
+    store.append(event)
+    store._index_path.unlink()
+    with sqlite3.connect(store._index_path) as connection:
+        connection.execute(
+            "CREATE TABLE audit_event_ids (event_id TEXT PRIMARY KEY, event_json TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE TABLE audit_index_metadata (key TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO audit_event_ids(event_id, event_json) VALUES (?, ?)",
+            (str(event.event_id), event.model_dump_json()),
+        )
+        connection.execute(
+            "INSERT INTO audit_index_metadata(key, value) VALUES ('ledger_size', ?)",
+            (store.path.stat().st_size,),
+        )
+
+    assert list(store.iter_recent_events(1)) == [event]
+
+
+def test_recent_audit_query_includes_authoritative_committed_outbox(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = audit_store_for_test(storage, tmp_path, monkeypatch)
+    succeeded = valid_event(domain).model_copy(
+        update={"event_id": uuid4(), "result": domain.MutationResult.SUCCEEDED}
+    )
+    terminal_id = store.prepare_terminal(succeeded)
+    monkeypatch.setattr(
+        store,
+        "append",
+        lambda _event: (_ for _ in ()).throw(OSError("ledger unavailable")),
+    )
+    store.commit_terminal(terminal_id)
+
+    recent = list(store.iter_recent_events(1))
+    assert len(recent) == 1
+    assert recent[0].event_id == terminal_id
+    with pytest.raises(ValueError, match="limit"):
+        list(store.iter_recent_events(0))
 
 
 def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch) -> None:

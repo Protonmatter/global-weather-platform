@@ -230,19 +230,21 @@ def _admit_observations(
                 )
             else:
                 canonical_observations.append(current)
-        for observation in to_append:
-            store.append(observation)
         if mutation_id is not None:
             if source_record_digest is None:
                 raise ValueError("an ingestion mutation requires its source record digest")
-            # Publish request-specific completion evidence only after every
-            # canonical append succeeds. Otherwise a later redelivery could
-            # make an incomplete earlier request appear to have committed.
-            store.record_ingestion_mutation(
+            # The receipt is the final line of the same durable append payload
+            # as the canonical batch. A crash can expose observations without
+            # a receipt, but can never expose a receipt before its observations.
+            store.commit_ingestion_batch(
                 mutation_id,
                 source_digest=source_record_digest,
-                observations=canonical_observations,
+                appended_observations=to_append,
+                canonical_observations=canonical_observations,
             )
+        else:
+            for observation in to_append:
+                store.append(observation)
 
 
 def _require_retained_source(digest: str) -> None:

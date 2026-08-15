@@ -322,8 +322,8 @@ def list_audit_events(
     """Return recent authoritative mutation events to an authenticated BFF."""
 
     _core._require_mutation_authorization(request)
-    events = list(audit_store.iter_events())
-    return {"events": [event.model_dump(mode="json") for event in reversed(events[-limit:])]}
+    events = audit_store.iter_recent_events(limit)
+    return {"events": [event.model_dump(mode="json") for event in events]}
 
 
 @app.post("/v1/observations", status_code=status.HTTP_202_ACCEPTED)
