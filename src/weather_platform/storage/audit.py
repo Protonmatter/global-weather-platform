@@ -1,5 +1,6 @@
 import fcntl
 import os
+import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable, Iterator
@@ -18,6 +19,7 @@ class AuthoritativeAuditStore:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock_path = Path(f"{path}.lock")
+        self._index_path = Path(f"{path}.index.sqlite3")
         self._outbox_path = Path(f"{path}.outbox")
         self._outbox_path.mkdir(mode=0o750, exist_ok=True)
         self._lock = threading.RLock()
@@ -115,6 +117,121 @@ class AuthoritativeAuditStore:
         finally:
             os.close(descriptor)
 
+    @contextmanager
+    def _event_index(self) -> Iterator[sqlite3.Connection]:
+        """Open the derived event-ID index used by mutation hot paths."""
+
+        descriptor = os.open(self._index_path, os.O_CREAT | os.O_RDWR, 0o640)
+        try:
+            os.fchmod(descriptor, 0o640)
+        finally:
+            os.close(descriptor)
+        connection = sqlite3.connect(self._index_path, timeout=30)
+        try:
+            connection.execute("PRAGMA journal_mode=DELETE")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_event_ids (
+                    event_id TEXT PRIMARY KEY,
+                    event_json TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_index_metadata (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
+                )
+                """
+            )
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _synchronize_event_index(self, connection: sqlite3.Connection) -> None:
+        """Index only ledger bytes added since the last durable checkpoint."""
+
+        if self.path.exists():
+            self._repair_incomplete_ledger_tail()
+            ledger_size = self.path.stat().st_size
+        else:
+            ledger_size = 0
+
+        row = connection.execute(
+            "SELECT value FROM audit_index_metadata WHERE key = 'ledger_size'"
+        ).fetchone()
+        indexed_size = int(row[0]) if row is not None else 0
+        if indexed_size < 0 or indexed_size > ledger_size:
+            connection.execute("DELETE FROM audit_event_ids")
+            indexed_size = 0
+
+        if indexed_size < ledger_size:
+            with self.path.open("rb") as handle:
+                handle.seek(indexed_size)
+                while line := handle.readline():
+                    line_end = handle.tell()
+                    if not line.strip():
+                        indexed_size = line_end
+                        continue
+                    try:
+                        event = MutationAuditEvent.model_validate_json(line)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"invalid audit event at byte offset {indexed_size}"
+                        ) from exc
+                    encoded = event.model_dump_json()
+                    existing = connection.execute(
+                        "SELECT event_json FROM audit_event_ids WHERE event_id = ?",
+                        (str(event.event_id),),
+                    ).fetchone()
+                    if existing is not None and str(existing[0]) != encoded:
+                        raise ValueError(f"conflicting audit event id {event.event_id}")
+                    connection.execute(
+                        "INSERT OR IGNORE INTO audit_event_ids(event_id, event_json) VALUES (?, ?)",
+                        (str(event.event_id), encoded),
+                    )
+                    indexed_size = line_end
+
+        connection.execute(
+            "INSERT INTO audit_index_metadata(key, value) VALUES ('ledger_size', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (indexed_size,),
+        )
+
+    def _indexed_ledger_event(self, event_id: UUID) -> MutationAuditEvent | None:
+        """Look up an identity without replaying the complete append-only ledger."""
+
+        with self._transaction(), self._event_index() as connection:
+            self._synchronize_event_index(connection)
+            row = connection.execute(
+                "SELECT event_json FROM audit_event_ids WHERE event_id = ?",
+                (str(event_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return MutationAuditEvent.model_validate_json(str(row[0]))
+
+    def _indexed_ledger_event_ids(self, event_ids: set[UUID]) -> set[UUID]:
+        if not event_ids:
+            return set()
+        with self._transaction(), self._event_index() as connection:
+            self._synchronize_event_index(connection)
+            return {
+                event_id
+                for event_id in event_ids
+                if connection.execute(
+                    "SELECT 1 FROM audit_event_ids WHERE event_id = ?",
+                    (str(event_id),),
+                ).fetchone()
+                is not None
+            }
+
     def _outbox_file(self, event_id: UUID, state: str) -> Path:
         return self._outbox_path / f"{event_id}.{state}.json"
 
@@ -154,10 +271,13 @@ class AuthoritativeAuditStore:
         """Return a stable snapshot of successes awaiting state reconciliation."""
 
         with self._transaction():
-            ledger_event_ids = {event.event_id for event in self._iter_ledger_events()}
+            candidates = sorted(self._outbox_path.glob("*.pending.json"))
+            ledger_event_ids = self._indexed_ledger_event_ids(
+                {UUID(path.name.removesuffix(".pending.json")) for path in candidates}
+            )
             snapshot = [
                 self._read_outbox_event(path)
-                for path in sorted(self._outbox_path.glob("*.pending.json"))
+                for path in candidates
                 if not path.with_name(
                     f"{path.name.removesuffix('.pending.json')}.committed.json"
                 ).exists()
@@ -169,10 +289,13 @@ class AuthoritativeAuditStore:
         """Return requests with durable handler-completion receipts."""
 
         with self._transaction():
-            ledger_event_ids = {event.event_id for event in self._iter_ledger_events()}
+            candidates = sorted(self._outbox_path.glob("*.applied.json"))
+            ledger_event_ids = self._indexed_ledger_event_ids(
+                {UUID(path.name.removesuffix(".applied.json")) for path in candidates}
+            )
             snapshot = [
                 self._read_outbox_event(path)
-                for path in sorted(self._outbox_path.glob("*.applied.json"))
+                for path in candidates
                 if not path.with_name(
                     f"{path.name.removesuffix('.applied.json')}.committed.json"
                 ).exists()
@@ -203,7 +326,7 @@ class AuthoritativeAuditStore:
     def append(self, event: MutationAuditEvent) -> None:
         encoded = (event.model_dump_json() + "\n").encode("utf-8")
         with self._transaction():
-            if any(existing.event_id == event.event_id for existing in self._iter_ledger_events()):
+            if self._indexed_ledger_event(event.event_id) is not None:
                 raise ValueError(f"duplicate audit event id {event.event_id}")
             flags = os.O_WRONLY | os.O_APPEND
             created = False
@@ -238,9 +361,7 @@ class AuthoritativeAuditStore:
                 pending.exists()
                 or applied.exists()
                 or committed.exists()
-                or any(
-                    existing.event_id == event.event_id for existing in self._iter_ledger_events()
-                )
+                or self._indexed_ledger_event(event.event_id) is not None
             ):
                 raise ValueError(f"duplicate audit event id {event.event_id}")
             self._write_outbox_event(event, pending)
@@ -263,13 +384,7 @@ class AuthoritativeAuditStore:
             # terminal event. A later append/maintenance pass may compact it.
             return
         except ValueError:
-            with self._transaction():
-                matching = [
-                    existing
-                    for existing in self._iter_ledger_events()
-                    if existing.event_id == event.event_id
-                ]
-            if matching != [event]:
+            if self._indexed_ledger_event(event.event_id) != event:
                 raise
 
         try:
@@ -290,7 +405,7 @@ class AuthoritativeAuditStore:
             if applied.exists() or committed.exists():
                 return
             if not pending.exists():
-                if any(existing.event_id == event_id for existing in self._iter_ledger_events()):
+                if self._indexed_ledger_event(event_id) is not None:
                     return
                 raise ValueError(f"unknown prepared audit event {event_id}")
             os.replace(pending, applied)
@@ -341,14 +456,10 @@ class AuthoritativeAuditStore:
                         pass
                     return
             else:
-                matching = [
-                    existing
-                    for existing in self._iter_ledger_events()
-                    if existing.event_id == event_id
-                ]
-                if matching == [event]:
+                indexed_existing = self._indexed_ledger_event(event_id)
+                if indexed_existing == event:
                     return
-                if matching:
+                if indexed_existing is not None:
                     raise ValueError(f"conflicting audit event {event_id}")
                 # prepare_terminal() can fail before a pending file exists.
                 # The mutation has not run, so the ledger is the appropriate
@@ -387,7 +498,7 @@ class AuthoritativeAuditStore:
                 )
                 self._write_outbox_event(event, committed)
             else:
-                if any(existing.event_id == event_id for existing in self._iter_ledger_events()):
+                if self._indexed_ledger_event(event_id) is not None:
                     return
                 raise ValueError(f"unknown prepared audit event {event_id}")
             try:

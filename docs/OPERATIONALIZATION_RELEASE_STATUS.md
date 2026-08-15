@@ -31,6 +31,7 @@
 - Failure to persist the initial audit event blocks canonical state mutation.
 - Terminal successes are written and synced under a hidden temporary name, then atomically published to the durable outbox before canonical state changes. An atomic outbox commit remains authoritative if compaction into the JSONL ledger cannot allocate additional space.
 - Audit replay repairs only an unterminated invalid final ledger record after an interrupted append. A complete final event that is missing its newline is preserved and separated before the next append; malformed newline-terminated records still fail closed.
+- Append-path identity checks use a durable SQLite sidecar synchronized from only the ledger bytes added since its last checkpoint. The append-only JSONL remains authoritative, and a checkpoint ahead of a repaired or truncated ledger triggers an index rebuild.
 - Process startup reconciles pending successes against immutable source records, canonical observations, decoded-ingestion results, and request-specific model-cycle mutation markers. Only successes proven present for the exact mutation identity and content digest are published; uncertain entries remain pending.
 - A failed source-record ingestion records `retained: true` whenever the immutable source bytes survive a downstream decoding, quality, or canonical-conflict failure and pass integrity verification.
 - Request UUIDs are generated or validated, attached to request state, returned through `x-request-id`, and bound to audit events.

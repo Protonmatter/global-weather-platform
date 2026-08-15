@@ -30,6 +30,15 @@
           "verification": [
             "TEST-RES-0001"
           ]
+        },
+        {
+          "id": "ARCH-AUD-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger and MUST recover derived identity-index state from the append-only ledger after interrupted writes or truncation.",
+          "verification": [
+            "TEST-AUDIT-0001"
+          ]
         }
       ],
       "spec_id": "SPEC-100",
@@ -544,7 +553,7 @@
           "id": "DEL-DEP-0005",
           "priority": "critical",
           "release_gate": "security",
-          "statement": "Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.",
+          "statement": "Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, release dependency resolution MUST exclude inherited secondary package sources and use only the approved internal mirror, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.",
           "verification": [
             "TEST-DEPS-0001"
           ]
@@ -564,6 +573,13 @@
     "REPORT-SCORECARD-0001": {
       "notes": "Sliced skill reporting awaits operational verification data.",
       "status": "planned"
+    },
+    "TEST-AUDIT-0001": {
+      "evidence": [
+        "src/weather_platform/storage/audit.py",
+        "tests/unit/test_audit_domain.py"
+      ],
+      "status": "implemented"
     },
     "TEST-CATALOG-0001": {
       "evidence": [
@@ -631,7 +647,9 @@
     "TEST-DEPS-0001": {
       "evidence": [
         "scripts/validate_dependency_policy.py",
+        "scripts/build_image.sh",
         "tests/contract/test_dependency_policy.py",
+        "tests/contract/test_weather_deployment_policy.py",
         ".github/dependabot.yml",
         ".github/workflows/python-lock.yml"
       ],

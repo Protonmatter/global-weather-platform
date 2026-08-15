@@ -66,22 +66,36 @@ cleanup_build_venv() {
 trap cleanup_build_venv EXIT
 python3.12 -m venv "$BUILD_VENV"
 BUILD_PYTHON="$BUILD_VENV/bin/python"
+APPROVED_PIP_INDEX_URL="$PIP_INDEX_URL"
+PIP_CONFIG_FILE="$BUILD_VENV/approved-pip.conf"
+printf '%s\n' \
+  '[global]' \
+  "index-url = $APPROVED_PIP_INDEX_URL" \
+  'extra-index-url =' \
+  'find-links =' \
+  > "$PIP_CONFIG_FILE"
+chmod 0600 "$PIP_CONFIG_FILE"
+export PIP_CONFIG_FILE
+unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL PIP_FIND_LINKS PIP_TRUSTED_HOST
 
 rm -rf .wheelhouse
 mkdir -p .wheelhouse
 
-"$BUILD_PYTHON" -m pip install \
+"$BUILD_PYTHON" -m pip --isolated install \
   --disable-pip-version-check \
+  --index-url "$APPROVED_PIP_INDEX_URL" \
   --require-hashes \
   --requirement requirements/production.lock
-"$BUILD_PYTHON" -m pip download \
+"$BUILD_PYTHON" -m pip --isolated download \
   --disable-pip-version-check \
+  --index-url "$APPROVED_PIP_INDEX_URL" \
   --require-hashes \
   --only-binary=:all: \
   --dest .wheelhouse \
   --requirement requirements/production.lock
-"$BUILD_PYTHON" -m pip wheel \
+"$BUILD_PYTHON" -m pip --isolated wheel \
   --disable-pip-version-check \
+  --no-index \
   --no-build-isolation \
   --no-deps \
   --wheel-dir .wheelhouse \

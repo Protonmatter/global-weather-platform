@@ -37,9 +37,16 @@ verifications:
     status: implemented
     evidence:
       - scripts/validate_dependency_policy.py
+      - scripts/build_image.sh
       - tests/contract/test_dependency_policy.py
+      - tests/contract/test_weather_deployment_policy.py
       - .github/dependabot.yml
       - .github/workflows/python-lock.yml
+  TEST-AUDIT-0001:
+    status: implemented
+    evidence:
+      - src/weather_platform/storage/audit.py
+      - tests/unit/test_audit_domain.py
   TEST-CONTRACT-0001:
     status: implemented
     evidence:

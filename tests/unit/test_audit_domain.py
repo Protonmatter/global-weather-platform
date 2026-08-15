@@ -109,6 +109,50 @@ def test_authoritative_audit_store_rejects_duplicate_event_identity(tmp_path) ->
         store.append(item)
 
 
+def test_audit_append_uses_incremental_identity_index(tmp_path, monkeypatch) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    first = valid_event(domain)
+    second = valid_event(domain)
+    store.append(first)
+
+    def reject_full_replay() -> None:
+        raise AssertionError("append must not replay the full audit ledger")
+
+    monkeypatch.setattr(store, "_iter_ledger_events", reject_full_replay)
+
+    store.append(second)
+    with pytest.raises(ValueError, match="duplicate"):
+        store.append(second)
+
+
+def test_audit_identity_index_rebuilds_after_ledger_truncation(tmp_path) -> None:
+    domain = audit_module()
+    storage = import_module("weather_platform.storage.audit")
+    store = storage.AuthoritativeAuditStore(tmp_path / "mutation-audit.jsonl")
+    first = valid_event(domain)
+    removed = valid_event(domain)
+    store.append(first)
+    first_size = store.path.stat().st_size
+    store.append(removed)
+
+    with pytest.raises(ValueError, match="duplicate"):
+        store.append(removed)
+    with store.path.open("r+b") as handle:
+        handle.truncate(first_size)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    replacement = valid_event(domain).model_copy(update={"event_id": removed.event_id})
+    store.append(replacement)
+
+    assert {event.event_id for event in store.iter_events()} == {
+        first.event_id,
+        replacement.event_id,
+    }
+
+
 def test_committed_outbox_survives_a_partial_ledger_append(tmp_path, monkeypatch) -> None:
     domain = audit_module()
     storage = import_module("weather_platform.storage.audit")

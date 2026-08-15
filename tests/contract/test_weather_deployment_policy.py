@@ -256,6 +256,14 @@ if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
   cat > "$3/bin/python" <<'PYTHON'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" ]]; then
+  [[ -z "${PIP_EXTRA_INDEX_URL:-}" ]]
+  [[ -z "${PIP_FIND_LINKS:-}" ]]
+  [[ -z "${PIP_TRUSTED_HOST:-}" ]]
+  [[ -f "${PIP_CONFIG_FILE:?}" ]]
+  grep -Fx 'extra-index-url =' "$PIP_CONFIG_FILE" >/dev/null
+  grep -Fx 'find-links =' "$PIP_CONFIG_FILE" >/dev/null
+fi
 printf 'venv:%s\\n' "$*" >> "$COMMAND_LOG"
 PYTHON
   chmod +x "$3/bin/python"
@@ -278,6 +286,13 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
     requirements = tmp_path / "requirements"
     requirements.mkdir()
     (requirements / "production.lock").write_text("", encoding="utf-8")
+    hostile_pip_config = tmp_path / "hostile-pip.conf"
+    hostile_pip_config.write_text(
+        """[global]
+extra-index-url = https://unapproved.example/simple
+""",
+        encoding="utf-8",
+    )
 
     environment = os.environ.copy()
     environment.update(
@@ -286,6 +301,10 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
             "IMAGE": "registry.example/weather/platform:test",
             "INTERNAL_REGISTRY": "registry.example",
             "PIP_INDEX_URL": "https://packages.example/simple",
+            "PIP_EXTRA_INDEX_URL": "https://unapproved.example/simple",
+            "PIP_FIND_LINKS": "https://unapproved.example/wheels",
+            "PIP_TRUSTED_HOST": "unapproved.example",
+            "PIP_CONFIG_FILE": str(hostile_pip_config),
             "PYPI_MIRROR_ORIGIN": "https://packages.example",
         }
     )
@@ -315,7 +334,15 @@ printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
     commands = command_log.read_text(encoding="utf-8").splitlines()
     assert commands[0].startswith("system:-m venv ")
     assert not any(command.startswith("system:-m pip ") for command in commands)
-    assert sum(command.startswith("venv:-m pip ") for command in commands) == 3
+    pip_commands = [command for command in commands if command.startswith("venv:-m pip ")]
+    assert len(pip_commands) == 3
+    assert all("--isolated" in command for command in pip_commands)
+    assert (
+        sum("--index-url https://packages.example/simple" in command for command in pip_commands)
+        == 2
+    )
+    assert any("--no-index" in command for command in pip_commands)
+    assert not any("unapproved.example" in command for command in pip_commands)
     assert any(command.startswith("docker:build ") for command in commands)
 
 

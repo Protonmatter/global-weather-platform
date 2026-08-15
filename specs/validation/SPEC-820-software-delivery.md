@@ -32,7 +32,7 @@ requirements:
     verification: [TEST-DELIVERY-0003]
     release_gate: operational
   - id: DEL-DEP-0005
-    statement: Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.
+    statement: Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, release dependency resolution MUST exclude inherited secondary package sources and use only the approved internal mirror, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.
     priority: critical
     verification: [TEST-DEPS-0001]
     release_gate: security
@@ -55,8 +55,11 @@ Python application manifests declare bounded compatibility ranges while release
 and CI installation use exact SHA-256-checked lock graphs. JavaScript direct
 dependencies are exact, the npm lock retains registry integrity values, language
 runtimes are repository-pinned, and third-party workflow actions use immutable
-commit references. Scheduled dependency pull requests are grouped by ecosystem;
-major upgrades remain deliberate specification changes.
+commit references. Release installation uses a job-local Python environment,
+an isolated pip client, an explicit approved index, and a generated configuration
+that clears inherited extra indexes and find-links sources. Scheduled dependency
+pull requests are grouped by ecosystem; major upgrades remain deliberate
+specification changes.
 
 Continuous delivery constructs, scans, signs, and attests an immutable image only
 after the complete reusable CI gate succeeds for the same workflow revision.
