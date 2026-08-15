@@ -104,6 +104,31 @@ def test_catalog_binds_an_append_to_its_mutation_identity(tmp_path: Path) -> Non
     )
 
 
+def test_catalog_syncs_its_directory_when_first_created(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    synced: list[Path] = []
+    monkeypatch.setattr(catalog, "_fsync_directory", synced.append)
+
+    catalog.register(cycle([field()]))
+
+    assert synced == [tmp_path]
+
+
+def test_catalog_does_not_repeat_directory_sync_for_later_appends(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    catalog.register(cycle([field()]))
+    synced: list[Path] = []
+    monkeypatch.setattr(catalog, "_fsync_directory", synced.append)
+
+    catalog.register(cycle([field()], source_revision="2026072206"))
+
+    assert synced == []
+
+
 def test_catalog_repairs_only_a_torn_final_record_before_recovery(tmp_path: Path) -> None:
     path = tmp_path / "model-cycles.jsonl"
     catalog = ModelGuidanceCatalog(path)

@@ -2,9 +2,7 @@
 
 **Status:** Implemented on pull request branch; awaiting review and merge  
 **Base:** `main` after dependency-security PR #27  
-**Validated code head:** `536c298f017d2ab11e6d2da10b69d7924cee4c09`
-
-**GitHub Actions merge ref:** `fed67c53f4d216813d204e1daa791d9ae086a083`
+**Validation scope:** The exact candidate tree and its GitHub Actions runs are recorded on PR #30. This tracked file intentionally does not embed a commit SHA because changing the evidence file creates a new commit.
 
 ## Implemented
 
@@ -16,7 +14,7 @@
 
 ### Reproducible Python resolution
 
-- `requirements/production.lock` and `requirements/ci.lock` are hash-pinned.
+- `requirements/compiler.lock`, `requirements/production.lock`, and `requirements/ci.lock` are hash-pinned.
 - Locks are generated with Python 3.12, `pip==26.1.2`, and `pip-tools==7.6.0`.
 - Build-system dependencies, including `setuptools` and `wheel`, are included in the locks.
 - Primary, bootstrap, specification, schema, scientific, weather-contract, and integration workflows install from the checked lock with `--require-hashes`.
@@ -61,14 +59,14 @@
 
 ## Verification evidence
 
-GitHub Actions verified code head `536c298f017d2ab11e6d2da10b69d7924cee4c09` through pull-request merge ref `fed67c53f4d216813d204e1daa791d9ae086a083`. This document is intentionally committed after that code-changing commit so the evidence record does not claim to validate its own commit hash.
+The current PR head is the source of truth for the candidate SHA and its associated GitHub Actions evidence. The full local release gate is rerun before each candidate is published, and the hosted full-CI fanout validates the published tree.
 
-- Python tests: **308 passed**
-- Python branch coverage: **90.84%**, above the required 90%
+- Python tests: **353 passed**
+- Python branch coverage: **90.28%**, above the required 90%
 - Ruff lint: passed
-- Ruff formatting: **121 files already formatted**
+- Ruff formatting: **126 files already formatted**
 - Mypy strict mode: **48 source files, no issues**
-- Operator-console unit contracts: **28 passed**
+- Operator-console unit contracts: **29 passed**
 - Operator-console rendered-artifact tests: **2 passed**
 - Operator-console lint, TypeScript checking, production build, and artifact validation: passed
 - Hash-pinned lock regeneration and freshness comparison: passed
@@ -78,7 +76,7 @@ GitHub Actions verified code head `536c298f017d2ab11e6d2da10b69d7924cee4c09` thr
 - Fixture-driven integration validation: passed
 - Focused weather contract validation: passed
 
-All nine required workflows passed:
+All ten reusable CI lanes passed and are orchestrated by the full continuous-integration gate:
 
 - `pr-fast`
 - `ci-bootstrap`
@@ -89,6 +87,7 @@ All nine required workflows passed:
 - `weather-contract`
 - `operator-console`
 - `python-lock`
+- `end-to-end`
 
 CodeQL also passed for Actions, Python, and JavaScript/TypeScript. The image-publish workflow is not a pull-request check; the job-local environment change is covered here by an executable fake-tool build contract and shell syntax validation, not by a registry publish claim.
 

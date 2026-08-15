@@ -3,8 +3,6 @@ name: pr-fast
 on:
   workflow_call:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read

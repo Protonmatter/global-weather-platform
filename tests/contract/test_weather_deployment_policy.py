@@ -203,6 +203,18 @@ def test_continuous_delivery_requires_the_complete_ci_gate() -> None:
     assert image["jobs"]["build"]["environment"] == "release"
 
 
+def test_reusable_ci_lanes_do_not_also_run_standalone_on_main() -> None:
+    integration = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-integration.yml").read_text("utf-8")
+    )
+    for job in integration["jobs"].values():
+        workflow_path = ROOT / job["uses"].removeprefix("./")
+        workflow = yaml.safe_load(workflow_path.read_text("utf-8"))
+        triggers = workflow.get("on", workflow.get(True))
+        assert "workflow_call" in triggers, workflow_path
+        assert "push" not in triggers, workflow_path
+
+
 def test_lock_compiler_bootstrap_is_hashed_and_not_double_triggered() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/python-lock.yml").read_text("utf-8"))
     triggers = workflow.get("on", workflow.get(True))

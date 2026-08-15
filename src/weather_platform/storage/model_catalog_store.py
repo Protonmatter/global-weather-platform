@@ -57,6 +57,15 @@ class ModelGuidanceCatalog:
                     self._lock_fd = None
 
     @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(path, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
     def _decode_record(payload: object) -> _CatalogEntry:
         if isinstance(payload, dict) and "mutation_id" in payload:
             mutation_id = UUID(str(payload["mutation_id"]))
@@ -125,7 +134,17 @@ class ModelGuidanceCatalog:
             # constructed. Repair its unterminated tail before extending it.
             if self.path.exists():
                 self._repair_incomplete_tail()
-            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
+            append_flags = os.O_WRONLY | os.O_APPEND
+            created = False
+            try:
+                fd = os.open(
+                    self.path,
+                    append_flags | os.O_CREAT | os.O_EXCL,
+                    0o640,
+                )
+                created = True
+            except FileExistsError:
+                fd = os.open(self.path, append_flags)
             original_size = os.fstat(fd).st_size
             try:
                 offset = 0
@@ -135,6 +154,8 @@ class ModelGuidanceCatalog:
                         raise OSError("model catalog write made no progress")
                     offset += written
                 os.fsync(fd)
+                if created:
+                    self._fsync_directory(self.path.parent)
             except OSError:
                 os.ftruncate(fd, original_size)
                 os.fsync(fd)

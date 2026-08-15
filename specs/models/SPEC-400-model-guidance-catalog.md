@@ -19,8 +19,13 @@ requirements:
     priority: high
     verification: [TEST-CATALOG-0001]
     release_gate: engineering
+  - id: MODEL-CAT-0003
+    statement: A model-cycle catalog append MUST make both the record contents and a newly created catalog directory entry durable before reporting success.
+    priority: critical
+    verification: [TEST-CATALOG-0001]
+    release_gate: engineering
 ---
 
 # Model guidance catalog
 
-The catalog indexes external and platform model cycles by model, version, cycle initialization, source revision, grid, variable, level, and lead. Every cycle carries an explicit guidance origin, so imported provider guidance is never confused with platform-generated or experimental output. Each cycle declares its expected field inventory, so a cycle that is missing or only partially available is represented explicitly rather than appearing as silently absent data.
+The catalog indexes external and platform model cycles by model, version, cycle initialization, source revision, grid, variable, level, and lead. Every cycle carries an explicit guidance origin, so imported provider guidance is never confused with platform-generated or experimental output. Each cycle declares its expected field inventory, so a cycle that is missing or only partially available is represented explicitly rather than appearing as silently absent data. Catalog appends sync their record data before success and sync the parent directory when first creating the catalog, preserving creation across a power loss.

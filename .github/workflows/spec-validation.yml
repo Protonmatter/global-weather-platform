@@ -10,9 +10,6 @@ on:
       - 'scripts/generate_traceability.py'
       - 'artifacts/traceability.json'
       - '.github/workflows/spec-validation.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 

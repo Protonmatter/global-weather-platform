@@ -14,9 +14,6 @@ on:
       - 'tests/contract/test_weather_deployment_policy.py'
       - 'scripts/validate_schemas.py'
       - '.github/workflows/schema-contract.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 

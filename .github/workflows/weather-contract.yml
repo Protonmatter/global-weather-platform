@@ -35,9 +35,6 @@ on:
       - 'tests/integration/test_weather_vertical_slice.py'
       - 'tests/regression/test_weather_adversarial_regressions.py'
       - '.github/workflows/weather-contract.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 

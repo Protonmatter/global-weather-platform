@@ -300,6 +300,15 @@
           "verification": [
             "TEST-CATALOG-0001"
           ]
+        },
+        {
+          "id": "MODEL-CAT-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "A model-cycle catalog append MUST make both the record contents and a newly created catalog directory entry durable before reporting success.",
+          "verification": [
+            "TEST-CATALOG-0001"
+          ]
         }
       ],
       "spec_id": "SPEC-400",

@@ -7,13 +7,6 @@ on:
       - 'apps/operator-console/**'
       - 'Makefile'
       - '.github/workflows/operator-console.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/operator-console/**'
-      - 'Makefile'
-      - '.github/workflows/operator-console.yml'
-
 permissions:
   contents: read
 

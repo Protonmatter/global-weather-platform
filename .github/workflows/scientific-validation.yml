@@ -22,9 +22,6 @@ on:
       - 'tests/unit/test_vector_tiles.py'
       - 'tests/regression/test_weather_adversarial_regressions.py'
       - '.github/workflows/scientific-validation.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 
