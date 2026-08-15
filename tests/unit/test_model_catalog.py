@@ -1,5 +1,7 @@
+import os
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -10,6 +12,7 @@ from weather_platform.domain.model_catalog import (
     ModelCycleField,
     ModelGuidanceCycle,
 )
+from weather_platform.provenance import sha256_digest
 from weather_platform.storage.model_catalog_store import ModelGuidanceCatalog
 
 INIT = datetime(2026, 7, 22, 0, 0, tzinfo=UTC)
@@ -82,3 +85,140 @@ def test_catalog_filters_by_origin(tmp_path: Path) -> None:
     )
     imported = catalog.list(guidance_origin=GuidanceOrigin.IMPORTED)
     assert [c.model_id for c in imported] == ["gfs"]
+
+
+def test_catalog_binds_an_append_to_its_mutation_identity(tmp_path: Path) -> None:
+    catalog = ModelGuidanceCatalog(tmp_path / "model-cycles.jsonl")
+    item = cycle([field()])
+    mutation_id = uuid4()
+
+    catalog.register(item, mutation_id=mutation_id)
+
+    assert catalog.contains_mutation(
+        mutation_id,
+        sha256_digest(item.model_dump_json().encode("utf-8")),
+    )
+    assert not catalog.contains_mutation(
+        uuid4(),
+        sha256_digest(item.model_dump_json().encode("utf-8")),
+    )
+
+
+def test_catalog_syncs_its_directory_when_first_created(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    synced: list[Path] = []
+    monkeypatch.setattr(catalog, "_fsync_directory", synced.append)
+
+    catalog.register(cycle([field()]))
+
+    assert synced == [tmp_path]
+
+
+def test_catalog_does_not_repeat_directory_sync_for_later_appends(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    catalog.register(cycle([field()]))
+    synced: list[Path] = []
+    monkeypatch.setattr(catalog, "_fsync_directory", synced.append)
+
+    catalog.register(cycle([field()], source_revision="2026072206"))
+
+    assert synced == []
+
+
+def test_catalog_repairs_only_a_torn_final_record_before_recovery(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    catalog.register(retained)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    restarted = ModelGuidanceCatalog(path)
+
+    assert restarted.list() == [retained]
+    assert path.read_text(encoding="utf-8").endswith("\n")
+
+
+def test_catalog_rejects_a_malformed_newline_terminated_record(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    catalog.register(cycle([field(lead_hours=0)]))
+    with path.open("ab") as handle:
+        handle.write(b"not-json\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    restarted = ModelGuidanceCatalog(path)
+
+    with pytest.raises(ValueError, match="invalid model cycle at line 2"):
+        restarted.list()
+
+
+def test_catalog_repairs_a_crashed_writer_before_a_later_instance_appends(tmp_path: Path) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    first = ModelGuidanceCatalog(path)
+    later = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    appended = cycle([field(lead_hours=6)], source_revision="2026072206")
+    first.register(retained)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    later.register(appended)
+
+    assert later.list() == [retained, appended]
+
+
+def test_catalog_repairs_a_torn_tail_before_an_existing_instance_reads(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    mutation_id = uuid4()
+    catalog.register(retained, mutation_id=mutation_id)
+    with path.open("ab") as handle:
+        handle.write(b'{"mutation_id":"torn')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    assert catalog.contains_mutation(
+        mutation_id,
+        sha256_digest(retained.model_dump_json().encode("utf-8")),
+    )
+    assert path.read_text(encoding="utf-8").endswith("\n")
+
+
+def test_catalog_rolls_back_a_partial_append_failure(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "model-cycles.jsonl"
+    catalog = ModelGuidanceCatalog(path)
+    retained = cycle([field(lead_hours=0)])
+    rejected = cycle([field(lead_hours=6)], source_revision="2026072206")
+    catalog.register(retained)
+    original = path.read_bytes()
+    write = os.write
+    interrupted = False
+
+    def interrupt_once(descriptor: int, payload: bytes) -> int:
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            write(descriptor, payload[: max(1, len(payload) // 2)])
+            raise OSError("simulated partial catalog write")
+        return write(descriptor, payload)
+
+    monkeypatch.setattr(os, "write", interrupt_once)
+
+    with pytest.raises(OSError, match="partial catalog write"):
+        catalog.register(rejected)
+
+    assert path.read_bytes() == original
+    assert catalog.list() == [retained]

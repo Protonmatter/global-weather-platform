@@ -1,6 +1,11 @@
+import os
+import shutil
+import subprocess
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,3 +117,341 @@ def test_serving_namespace_denies_arbitrary_egress() -> None:
     assert deny["spec"]["policyTypes"] == ["Ingress", "Egress"]
     assert deny["spec"]["ingress"] == []
     assert deny["spec"]["egress"] == []
+
+
+def test_acquisition_manifest_uses_an_immutable_image_placeholder() -> None:
+    items = documents("deploy/k8s/weather-acquisition.yaml")
+    deployment = find(items, "Deployment", "weather-gfs-acquisition")
+    image = deployment["spec"]["template"]["spec"]["containers"][0]["image"]
+    assert image == "weather-platform-runtime@sha256:" + "0" * 64
+    assert ":0.1.0" not in image
+
+
+def test_release_renderer_requires_a_real_digest(tmp_path) -> None:
+    module = import_module("scripts.render_release_manifest")
+    source = tmp_path / "source.yaml"
+    output = tmp_path / "output.yaml"
+    source.write_text(
+        "image: weather-platform-runtime@sha256:" + "0" * 64 + "\n",
+        encoding="utf-8",
+    )
+    image = "registry.example/weather/platform@sha256:" + "b" * 64
+    module.render_manifest(source, output, image)
+    assert f"image: {image}" in output.read_text(encoding="utf-8")
+    for invalid in (
+        "registry.example/weather/platform:latest",
+        "registry.example/weather/platform@sha256:" + "0" * 64,
+        "https://registry.example/weather/platform@sha256:" + "b" * 64,
+        "registry.example//weather/platform@sha256:" + "b" * 64,
+    ):
+        with pytest.raises(ValueError):
+            module.validate_image_reference(invalid)
+
+    with pytest.raises(ValueError, match="expected repository"):
+        module.validate_image_reference(
+            image,
+            expected_repository="registry.example/other/platform",
+        )
+
+
+def test_release_workflow_binds_evidence_to_the_built_repository() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/build-image.yml").read_text("utf-8"))
+    build_step = next(
+        step
+        for step in workflow["jobs"]["build"]["steps"]
+        if step["name"] == "Build wheelhouse from the internal mirror"
+    )
+    render_step = next(
+        step
+        for step in workflow["jobs"]["build"]["steps"]
+        if step["name"] == "Render immutable release evidence"
+    )
+    assert build_step["env"]["INTERNAL_REGISTRY"] == "${{ vars.INTERNAL_REGISTRY }}"
+    assert build_step["env"]["PYPI_MIRROR_ORIGIN"] == "${{ vars.PYPI_MIRROR_ORIGIN }}"
+    assert "--expected-repository" in render_step["run"]
+    assert "${{ vars.INTERNAL_REGISTRY }}/weather/platform" in render_step["run"]
+
+
+def test_continuous_delivery_requires_the_complete_ci_gate() -> None:
+    integration = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-integration.yml").read_text("utf-8")
+    )
+    called_workflows = {job["uses"] for job in integration["jobs"].values() if "uses" in job}
+    assert called_workflows == {
+        "./.github/workflows/ci-bootstrap.yml",
+        "./.github/workflows/end-to-end.yml",
+        "./.github/workflows/operator-console.yml",
+        "./.github/workflows/pr-fast.yml",
+        "./.github/workflows/python-lock.yml",
+        "./.github/workflows/schema-contract.yml",
+        "./.github/workflows/scientific-validation.yml",
+        "./.github/workflows/spec-validation.yml",
+        "./.github/workflows/weather-contract.yml",
+        "./.github/workflows/weather-integration.yml",
+    }
+
+    delivery = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-delivery.yml").read_text("utf-8")
+    )
+    release = delivery["jobs"]["immutable-release"]
+    assert release["needs"] == "continuous-integration"
+    assert release["uses"] == "./.github/workflows/build-image.yml"
+
+    image = yaml.safe_load((ROOT / ".github/workflows/build-image.yml").read_text("utf-8"))
+    triggers = image.get("on", image.get(True))
+    assert triggers == {"workflow_call": None}
+    assert image["jobs"]["build"]["environment"] == "release"
+
+
+def test_reusable_ci_lanes_do_not_also_run_standalone_on_main() -> None:
+    integration = yaml.safe_load(
+        (ROOT / ".github/workflows/continuous-integration.yml").read_text("utf-8")
+    )
+    for job in integration["jobs"].values():
+        workflow_path = ROOT / job["uses"].removeprefix("./")
+        workflow = yaml.safe_load(workflow_path.read_text("utf-8"))
+        triggers = workflow.get("on", workflow.get(True))
+        assert "workflow_call" in triggers, workflow_path
+        assert "push" not in triggers, workflow_path
+
+
+def test_lock_compiler_bootstrap_is_hashed_and_not_double_triggered() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/python-lock.yml").read_text("utf-8"))
+    triggers = workflow.get("on", workflow.get(True))
+    assert "push" not in triggers
+    install_step = next(
+        step
+        for step in workflow["jobs"]["validate"]["steps"]
+        if step["name"] == "Install locked compiler"
+    )
+    assert "--require-hashes" in install_step["run"]
+    assert "requirements/compiler.lock" in install_step["run"]
+
+
+def test_end_to_end_workflow_uses_pinned_graphs_and_built_worker() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/end-to-end.yml").read_text("utf-8"))
+    steps = workflow["jobs"]["verify"]["steps"]
+    commands = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "--require-hashes" in commands
+    assert "requirements/ci.lock" in commands
+    assert "npm run install:ci" in commands
+    assert "npm run build" in commands
+    assert "tests/control-plane.e2e.test.mjs" in commands
+
+
+def test_integration_workflow_installs_from_the_checked_lock() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/weather-integration.yml").read_text("utf-8")
+    )
+    install_step = next(
+        step
+        for step in workflow["jobs"]["integration"]["steps"]
+        if step["name"] == "Install with ecCodes"
+    )
+    command = install_step["run"]
+    assert "--require-hashes" in command
+    assert "requirements/ci.lock" in command
+    assert "--no-build-isolation" in command
+    assert "--no-deps" in command
+
+
+def test_runtime_image_installs_the_locked_eccodes_extra() -> None:
+    dockerfile = (ROOT / "deploy/docker/Dockerfile").read_text(encoding="utf-8")
+    assert "global-weather-platform[eccodes]" in dockerfile
+
+
+def test_image_build_uses_a_job_local_python_environment(tmp_path: Path) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "commands.log"
+    fake_python = fake_bin / "python3.12"
+    fake_python.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'system:%s\\n' "$*" >> "$COMMAND_LOG"
+if [[ "${1:-}" == "-m" && "${2:-}" == "venv" ]]; then
+  mkdir -p "$3/bin"
+  cat > "$3/bin/python" <<'PYTHON'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" ]]; then
+  [[ -z "${PIP_EXTRA_INDEX_URL:-}" ]]
+  [[ -z "${PIP_FIND_LINKS:-}" ]]
+  [[ -z "${PIP_TRUSTED_HOST:-}" ]]
+  [[ -f "${PIP_CONFIG_FILE:?}" ]]
+  grep -Fx 'extra-index-url =' "$PIP_CONFIG_FILE" >/dev/null
+  grep -Fx 'find-links =' "$PIP_CONFIG_FILE" >/dev/null
+fi
+printf 'venv:%s\\n' "$*" >> "$COMMAND_LOG"
+PYTHON
+  chmod +x "$3/bin/python"
+fi
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_python.chmod(0o755)
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'docker:%s\\n' "$*" >> "$COMMAND_LOG"
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    fake_docker.chmod(0o755)
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+    hostile_pip_config = tmp_path / "hostile-pip.conf"
+    hostile_pip_config.write_text(
+        """[global]
+extra-index-url = https://unapproved.example/simple
+""",
+        encoding="utf-8",
+    )
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "registry.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
+            "PIP_INDEX_URL": "https://packages.example/simple",
+            "PIP_EXTRA_INDEX_URL": "https://unapproved.example/simple",
+            "PIP_FIND_LINKS": "https://unapproved.example/wheels",
+            "PIP_TRUSTED_HOST": "unapproved.example",
+            "PIP_CONFIG_FILE": str(hostile_pip_config),
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
+        }
+    )
+    build_script = ROOT / "scripts/build_image.sh"
+    if os.name == "nt":
+        environment.update(
+            {
+                "BUILD_SCRIPT_WINDOWS": str(build_script),
+                "COMMAND_LOG_WINDOWS": str(command_log),
+                "FAKE_BIN_WINDOWS": str(fake_bin),
+            }
+        )
+        command = [
+            bash,
+            "-lc",
+            'export COMMAND_LOG="$(cygpath -u "$COMMAND_LOG_WINDOWS")"; '
+            'export PATH="$(cygpath -u "$FAKE_BIN_WINDOWS"):$PATH"; '
+            'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"',
+        ]
+    else:
+        environment["COMMAND_LOG"] = str(command_log)
+        environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+        command = [bash, str(build_script)]
+
+    subprocess.run(command, cwd=tmp_path, env=environment, check=True)
+
+    commands = command_log.read_text(encoding="utf-8").splitlines()
+    assert commands[0].startswith("system:-m venv ")
+    assert not any(command.startswith("system:-m pip ") for command in commands)
+    pip_commands = [command for command in commands if command.startswith("venv:-m pip ")]
+    assert len(pip_commands) == 3
+    assert all("--isolated" in command for command in pip_commands)
+    assert (
+        sum("--index-url https://packages.example/simple" in command for command in pip_commands)
+        == 2
+    )
+    assert any("--no-index" in command for command in pip_commands)
+    assert not any("unapproved.example" in command for command in pip_commands)
+    assert any(command.startswith("docker:build ") for command in commands)
+
+
+def test_image_build_rejects_a_base_image_outside_the_approved_registry(
+    tmp_path: Path,
+) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+    build_script = ROOT / "scripts/build_image.sh"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "public.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
+            "PIP_INDEX_URL": "https://packages.example/simple",
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
+        }
+    )
+    if os.name == "nt":
+        environment["BUILD_SCRIPT_WINDOWS"] = str(build_script)
+        command = [bash, "-lc", 'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"']
+    else:
+        command = [bash, str(build_script)]
+
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 78
+    assert "approved internal registry" in result.stderr
+
+
+def test_image_build_rejects_a_package_index_outside_the_approved_origin(
+    tmp_path: Path,
+) -> None:
+    bash_override = os.environ.get("GWP_TEST_BASH")
+    if os.name == "nt" and bash_override is None:
+        pytest.skip("set GWP_TEST_BASH to a Git Bash executable on Windows")
+    bash = bash_override or shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is required to execute the Linux image-build contract")
+
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "production.lock").write_text("", encoding="utf-8")
+    build_script = ROOT / "scripts/build_image.sh"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BASE_IMAGE": "registry.example/python@sha256:" + "a" * 64,
+            "IMAGE": "registry.example/weather/platform:test",
+            "INTERNAL_REGISTRY": "registry.example",
+            "PIP_INDEX_URL": "https://pypi.org/simple",
+            "PYPI_MIRROR_ORIGIN": "https://packages.example",
+        }
+    )
+    if os.name == "nt":
+        environment["BUILD_SCRIPT_WINDOWS"] = str(build_script)
+        command = [bash, "-lc", 'bash "$(cygpath -u "$BUILD_SCRIPT_WINDOWS")"']
+    else:
+        command = [bash, str(build_script)]
+
+    result = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 78
+    assert "approved internal package mirror origin" in result.stderr

@@ -30,6 +30,15 @@
           "verification": [
             "TEST-RES-0001"
           ]
+        },
+        {
+          "id": "ARCH-AUD-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Authoritative mutation-audit appends MUST enforce event identity without replaying the complete ledger, bounded history reads MUST constrain ledger work to their requested limit, and derived index state MUST recover from the append-only ledger after interrupted writes or truncation.",
+          "verification": [
+            "TEST-AUDIT-0001"
+          ]
         }
       ],
       "spec_id": "SPEC-100",
@@ -106,6 +115,15 @@
           "statement": "Every observation MUST carry an explicit quality disposition and quality flags.",
           "verification": [
             "TEST-SCHEMA-0001"
+          ]
+        },
+        {
+          "id": "DATA-ING-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Canonical observation batches and their request-specific completion receipts MUST use one ordered recoverable commit so a receipt cannot become authoritative before every observation in its batch.",
+          "verification": [
+            "TEST-INGEST-0001"
           ]
         }
       ],
@@ -279,6 +297,15 @@
           "priority": "high",
           "release_gate": "engineering",
           "statement": "Missing and partial model cycles MUST be represented explicitly rather than as silently absent data.",
+          "verification": [
+            "TEST-CATALOG-0001"
+          ]
+        },
+        {
+          "id": "MODEL-CAT-0003",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "A model-cycle catalog append MUST make both the record contents and a newly created catalog directory entry durable before reporting success.",
           "verification": [
             "TEST-CATALOG-0001"
           ]
@@ -500,12 +527,78 @@
         "WCAG-2.2-AA"
       ],
       "status": "review"
+    },
+    {
+      "path": "specs/validation/SPEC-820-software-delivery.md",
+      "requirements": [
+        {
+          "id": "DEL-SPEC-0001",
+          "priority": "critical",
+          "release_gate": "governance",
+          "statement": "Every production change MUST trace normative requirements to repository-resident verification evidence before release construction.",
+          "verification": [
+            "TEST-DELIVERY-0001"
+          ]
+        },
+        {
+          "id": "DEL-CI-0002",
+          "priority": "critical",
+          "release_gate": "engineering",
+          "statement": "The continuous integration gate MUST validate specifications, dependency integrity, Python quality, operator-console quality, contracts, scientific invariants, integration paths, and end-to-end behavior for the exact candidate revision.",
+          "verification": [
+            "TEST-DELIVERY-0002"
+          ]
+        },
+        {
+          "id": "DEL-END-0003",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "End-to-end verification MUST cross the built operator-console worker, authenticated control-plane HTTP boundary, canonical persistence, read API, and authoritative audit ledger without live provider dependencies.",
+          "verification": [
+            "TEST-E2E-0001"
+          ]
+        },
+        {
+          "id": "DEL-CD-0004",
+          "priority": "critical",
+          "release_gate": "operational",
+          "statement": "Release construction MUST depend on a successful complete continuous integration gate for the same Git commit and MUST emit immutable signed release evidence before any environment promotion.",
+          "verification": [
+            "TEST-DELIVERY-0003"
+          ]
+        },
+        {
+          "id": "DEL-DEP-0005",
+          "priority": "critical",
+          "release_gate": "security",
+          "statement": "Runtime and CI dependency graphs MUST be installed from committed integrity-checked locks, release dependency resolution MUST exclude inherited secondary package sources and use only the approved internal mirror, direct compatibility ranges MUST be bounded, build runtimes and automation actions MUST be pinned, and automated version updates MUST pass the complete delivery gate.",
+          "verification": [
+            "TEST-DEPS-0001"
+          ]
+        }
+      ],
+      "spec_id": "SPEC-820",
+      "standards": [
+        "RFC-2119",
+        "RFC-8174",
+        "NIST-SSDF-1.1",
+        "SLSA-1.0"
+      ],
+      "status": "implemented"
     }
   ],
   "verifications": {
     "REPORT-SCORECARD-0001": {
       "notes": "Sliced skill reporting awaits operational verification data.",
       "status": "planned"
+    },
+    "TEST-AUDIT-0001": {
+      "evidence": [
+        "src/weather_platform/storage/audit.py",
+        "tests/unit/test_audit_domain.py",
+        "tests/contract/test_operationalization_routes.py"
+      ],
+      "status": "implemented"
     },
     "TEST-CATALOG-0001": {
       "evidence": [
@@ -537,9 +630,57 @@
       "notes": "Persistent atomic replacement of the currently served usable cycle awaits the production model-asset catalog and serving alias implementation.",
       "status": "planned"
     },
+    "TEST-DELIVERY-0001": {
+      "evidence": [
+        "scripts/validate_specs.py",
+        "scripts/validate_pr_requirements.py",
+        "scripts/generate_traceability.py",
+        "tests/unit/test_spec_tools.py",
+        "tests/unit/test_pr_requirements.py",
+        "artifacts/traceability.json"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DELIVERY-0002": {
+      "evidence": [
+        ".github/workflows/continuous-integration.yml",
+        ".github/workflows/end-to-end.yml",
+        "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DELIVERY-0003": {
+      "evidence": [
+        ".github/workflows/continuous-delivery.yml",
+        ".github/workflows/build-image.yml",
+        "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
     "TEST-DEPLOY-0001": {
       "evidence": [
         "tests/contract/test_weather_deployment_policy.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-DEPS-0001": {
+      "evidence": [
+        "requirements/compiler.in",
+        "requirements/compiler.lock",
+        "scripts/compile_requirements.sh",
+        "scripts/validate_dependency_policy.py",
+        "scripts/build_image.sh",
+        "tests/contract/test_dependency_policy.py",
+        "tests/contract/test_weather_deployment_policy.py",
+        ".github/dependabot.yml",
+        ".github/workflows/python-lock.yml"
+      ],
+      "status": "implemented"
+    },
+    "TEST-E2E-0001": {
+      "evidence": [
+        "apps/operator-console/tests/control-plane.e2e.test.mjs",
+        ".github/workflows/end-to-end.yml"
       ],
       "status": "implemented"
     },
@@ -557,6 +698,15 @@
         "tests/unit/test_eccodes_backend.py",
         "tests/contract/test_weather_schemas.py",
         "tests/integration/test_weather_vertical_slice.py"
+      ],
+      "status": "implemented"
+    },
+    "TEST-INGEST-0001": {
+      "evidence": [
+        "src/weather_platform/api/control_plane_core.py",
+        "src/weather_platform/storage/jsonl.py",
+        "tests/unit/test_storage.py",
+        "tests/contract/test_operationalization_routes.py"
       ],
       "status": "implemented"
     },

@@ -1,6 +1,7 @@
 name: scientific-validation
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'src/weather_platform/acquisition/noaa/**'
@@ -9,6 +10,7 @@ on:
       - 'src/weather_platform/ingestion/eccodes_backend.py'
       - 'src/weather_platform/scientific/**'
       - 'src/weather_platform/serving/vector_tiles.py'
+      - 'requirements/ci.lock'
       - 'tests/unit/test_probability.py'
       - 'tests/unit/test_verification.py'
       - 'tests/unit/test_grid_assets.py'
@@ -20,9 +22,6 @@ on:
       - 'tests/unit/test_vector_tiles.py'
       - 'tests/regression/test_weather_adversarial_regressions.py'
       - '.github/workflows/scientific-validation.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 
@@ -40,12 +39,15 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
           cache: pip
+          cache-dependency-path: requirements/ci.lock
       - name: Create isolated environment
         run: python -m venv .venv
-      - name: Install with ecCodes
-        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+      - name: Install reproducible dependencies
+        run: |
+          .venv/bin/python -m pip install --require-hashes -r requirements/ci.lock
+          .venv/bin/python -m pip install --no-build-isolation --no-deps -e .
       - name: Run physical and temporal invariants
         run: |
           mkdir -p artifacts

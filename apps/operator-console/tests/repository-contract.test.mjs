@@ -57,6 +57,10 @@ test("public BFF routes enforce shaping and mutation authentication", async () =
     new URL("../app/api/v1/edr/collections/route.ts", import.meta.url),
     "utf8",
   );
+  const auditRoute = await readFile(
+    new URL("../app/api/v1/audit/route.ts", import.meta.url),
+    "utf8",
+  );
   assert.match(observationsRoute, /adaptControlPlaneObservations/);
   assert.match(observationsRoute, /actorFromRequest/);
   assert.match(observationsRoute, /requireServiceAuth: true/);
@@ -66,6 +70,9 @@ test("public BFF routes enforce shaping and mutation authentication", async () =
   assert.match(sourceRoute, /recordAuditEventBestEffort/);
   assert.match(collectionsRoute, /adaptControlPlaneEdrCollections/);
   assert.match(healthRoute, /adaptControlPlaneHealth/);
+  assert.match(auditRoute, /adaptControlPlaneAuditEvents/);
+  assert.match(auditRoute, /\/v1\/audit-events/);
+  assert.match(auditRoute, /requireServiceAuth: true/);
 });
 
 test("production artifacts fail closed while local Vite is explicit", async () => {

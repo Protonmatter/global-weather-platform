@@ -6,36 +6,28 @@ The repository currently implements:
 
 - normative specifications with executable traceability checks;
 - canonical observation, forecast, model-cycle, grid-asset, source-slice, and provenance schemas;
-- an append-only observation store with content-addressed raw source retention;
+- content-addressed raw-source retention and an append-only observation store;
+- authoritative attempted/succeeded/failed mutation audit events with request correlation;
 - WIS2 notification validation and GRIB2 field-inventory decoding;
 - strict NOAA-style GRIB index parsing and deterministic required-field selection;
 - GFS minimum-usable and complete product manifests;
-- explicit model-cycle publication states and safe promotion rules;
+- explicit model-cycle readiness states and safe transition rules;
 - geographic, meteorological wind-vector, and binary U/V tile invariants;
 - a FastAPI control-plane API with OGC EDR-style position queries;
-- a separately deployable Sites operator console for authenticated observation and provenance workflows;
+- authenticated raw-evidence retrieval in production;
+- a separately deployable Sites operator console with validated upstream destinations;
 - baseline probabilistic verification functions;
 - deny-by-default production network policy and a separate acquisition trust zone;
-- CI gates for specifications, schemas, scientific invariants, integration paths, regression tests, security, and release evidence.
+- hash-pinned Python dependency locks and digest-bound release rendering;
+- a complete CI/CD fan-out for specifications, dependency integrity, Python and console quality, schemas, scientific invariants, integration, process-boundary end-to-end behavior, security, and immutable release evidence.
 
 ## Current scope
 
-This is **Phase 1 foundation work**. It does not run a numerical weather model and does not yet enable live NOAA acquisition.
+This remains **Phase 1 foundation work**. It does not run a numerical weather model and does not yet enable live NOAA acquisition.
 
 RFC-0002 defines the operational path from NOAA GFS/GEFS publication through immutable evidence, canonical gridded assets, cycle publication, OGC API EDR, presentation products, and a future forecast-map application.
 
-The implemented Phase-1 slice establishes the contracts and deterministic logic needed before live transport and production persistence are enabled:
-
-```text
-provider GRIB index
-  -> strict field and byte-range selection
-  -> immutable source-slice manifest
-  -> canonical grid-asset metadata
-  -> cycle completeness and publication eligibility
-  -> deterministic scientific/presentation wire contracts
-```
-
-The checked-in acquisition Deployment remains at `replicas: 0`. The `weather-platform-acquisition --require-live-transport` command fails closed until the separately gated downloader, queue, object-store, catalog, transport-trust, and outage tests exist.
+The checked-in acquisition Deployment remains at `replicas: 0`. Its image field is a non-deployable zero-digest placeholder that the internal release workflow must replace with an attested `repository@sha256:<digest>` reference. The acquisition command also fails closed until the separately gated downloader, queue, object-store, catalog, transport-trust, and outage tests exist.
 
 See:
 
@@ -43,14 +35,21 @@ See:
 - [weather data deployment and promotion](docs/WEATHER_DATA_DEPLOYMENT.md)
 - [forecast-map UI and experience contract](docs/WEATHER_UI_EXPERIENCE.md)
 - [network boundary](docs/NETWORK_BOUNDARY.md)
+- [repository posture](docs/REPOSITORY_POSTURE.md)
+
+## Repository posture
+
+The source is publicly viewable and proprietary. Public visibility does not grant an open-source license or permission to copy, modify, redistribute, sublicense, or sell the software. See [LICENSE](LICENSE) and [docs/REPOSITORY_POSTURE.md](docs/REPOSITORY_POSTURE.md).
+
+The repository is currently owned by the `Protonmatter` personal account, so `@Protonmatter` is the enforceable CODEOWNER. Migration to a GitHub organization with real scientific, security, data-architecture, and SRE teams remains the appropriate next governance step.
 
 ## Quick start
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev,eccodes]'
+python -m pip install --require-hashes -r requirements/ci.lock
+python -m pip install --no-build-isolation --no-deps -e .
 make validate
 make test
 make run
@@ -66,11 +65,33 @@ curl -s -X POST http://127.0.0.1:8080/v1/source-records \
 curl -s 'http://127.0.0.1:8080/v1/observations?phenomenon=air_temperature'
 ```
 
-`POST /v1/source-records` retains the raw record before decoding it. Canonical observations posted directly to `POST /v1/observations` must reference an already-retained source record; deposit undecoded bytes first with `PUT /v1/source-records/{digest}`.
+`POST /v1/source-records` retains raw bytes before decoding them. If decoding, quality admission, or canonical persistence fails after retention, the terminal audit event explicitly records that the immutable source evidence was retained and integrity-verified. Canonical observations posted directly to `POST /v1/observations` must reference an already-retained source record; deposit undecoded bytes first with `PUT /v1/source-records/{digest}`.
+
+Successful source ingestion records the request-specific observation identifiers and content digests only after every canonical append completes. Startup recovery verifies that original evidence marker against canonical storage; it does not re-run a potentially changed decoder.
+
+Production mutations and raw-source retrieval require both the control-plane bearer credential and the trusted `x-weather-actor` identity supplied by the authenticated BFF. Development mode retains the direct local workflow.
+
+## Reproducible dependencies
+
+`requirements/compiler.lock`, `requirements/production.lock`, and
+`requirements/ci.lock` are generated with Python 3.12. The compiler bootstrap
+and both application graphs contain package hashes. The lock workflow
+regenerates all three and fails when checked files differ.
+
+Python and Node.js build patches are pinned in `.python-version` and
+`apps/operator-console/.nvmrc`. Operator-console direct dependencies are exact,
+and Dependabot evaluates pip, npm, GitHub Actions, and Docker updates weekly.
+`make dependency-policy` validates all manifest, lock, runtime, automation, and
+update-policy invariants.
+
+Regenerate locally with:
+
+```bash
+python3.12 -m pip install --require-hashes -r requirements/compiler.lock
+bash scripts/compile_requirements.sh requirements
+```
 
 ## Weather validation targets
-
-Focused gates can be run independently:
 
 ```bash
 make weather-contract
@@ -78,20 +99,10 @@ make schema-contract
 make scientific-validation
 make weather-integration
 make weather-regression
+make e2e
 ```
 
-The focused targets use deterministic fixtures and do not call live weather providers. `make test` remains the complete branch-coverage gate.
-
-The fixture-driven integration path proves:
-
-```text
-GRIB index
-  -> selected required messages
-  -> bounded source manifest
-  -> usable/complete cycle evaluation
-  -> canonical grid asset
-  -> binary U/V tile encode/decode
-```
+The focused targets use deterministic fixtures and do not call live weather providers. `make e2e` builds the operator-console Worker and traverses it through a production-configured FastAPI subprocess and durable local stores. `make test` remains the complete branch-coverage gate.
 
 ## Engineering rules
 
@@ -101,16 +112,14 @@ GRIB index
 4. Observations and gridded model guidance remain separate canonical types.
 5. Model initialization time, valid time, and forecast lead are always explicit.
 6. Provider ETags are metadata; platform-calculated SHA-256 digests are content identities.
-7. Runtime telemetry is disabled unless an internal endpoint is explicitly configured.
-8. Production egress is deny-by-default and opened only for documented acquisition workers.
-9. Scientific changes require declared baselines, locked validation data, and independent review.
+7. Persistent mutations produce authoritative lifecycle audit events before and after state changes. Terminal failures replace prepared successes durably before cleanup, success timestamps are assigned at terminal commit, and startup recovery requires either a request-specific applied receipt or canonical storage evidence bound to the exact mutation identity and expected content digest.
+8. Runtime telemetry is disabled unless an approved internal endpoint is explicitly configured.
+9. Production egress is deny-by-default and opened only for documented acquisition workers.
 10. Application rollback and model-cycle publication rollback remain independent.
-
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/NETWORK_BOUNDARY.md](docs/NETWORK_BOUNDARY.md).
 
 ## Operator console
 
-The recovered ChatGPT Site source is maintained in [`apps/operator-console`](apps/operator-console). It is a separate visualization/operator trust zone: FastAPI remains authoritative, while the Site acts as an authenticated BFF and progressive-disclosure console.
+The OpenAI Sites source is maintained in [`apps/operator-console`](apps/operator-console). It is a separate visualization/operator trust zone: FastAPI remains authoritative, while the Site acts as an authenticated BFF and progressive-disclosure console.
 
 The operator console is not the forecast-map application described by RFC-0002.
 
@@ -119,9 +128,13 @@ make operator-console-install
 make operator-console-check
 ```
 
-The console retains its existing Sites project binding so deployments from this repository update the same versioned Site. See [`apps/operator-console/README.md`](apps/operator-console/README.md) and [`adrs/ADR-0002-operator-console-trust-zone.md`](adrs/ADR-0002-operator-console-trust-zone.md).
+Authoritative deployments configure:
 
-Authoritative deployments inject the same randomly generated, minimum 32-character service secret as `CONTROL_PLANE_TOKEN` in Sites and `WEATHER_CONTROL_PLANE_TOKEN` in FastAPI. The secret is never committed. Sites removes caller-supplied authorization and identity headers, requires the verified workspace identity for mutations, and forwards only its service token and the verified operator identity. Production containers set `WEATHER_ENVIRONMENT=production` and fail startup unless that token is injected.
+- `CONTROL_PLANE_URL` as an HTTPS origin with no path, query, fragment, userinfo, or IP literal;
+- `CONTROL_PLANE_ALLOWED_HOSTS` as a non-empty comma-separated DNS suffix allowlist;
+- `CONTROL_PLANE_TOKEN` with the same minimum 32-character secret injected into FastAPI as `WEATHER_CONTROL_PLANE_TOKEN`.
+
+The BFF validates the destination before attaching the credential, strips caller authorization and identity headers, supplies only the service credential and verified operator identity, and forwards only an explicit safe response-header set.
 
 ## Explicit next implementation slices
 
@@ -137,22 +150,6 @@ The following remain separate, reviewable work:
 - optional cached OpenWeather point-condition and alert enrichment;
 - load, resilience, staging replay, canary, and disaster-recovery qualification.
 
-## Publish the initial private GitHub repository
-
-The repository is initialized on `main`. From an authenticated workstation with the GitHub CLI:
-
-```bash
-./scripts/publish_github.sh
-```
-
-Defaults:
-
-- Owner: `Protonmatter`
-- Repository: `global-weather-platform`
-- Visibility: `private`
-
-Override these with `GITHUB_OWNER`, `GITHUB_REPOSITORY_NAME`, or `GITHUB_VISIBILITY`.
-
 ## License
 
-Proprietary and confidential — see [LICENSE](LICENSE). This is a placeholder proprietary notice matching the repository's private posture; replace it with the copyright holder's chosen terms, including an open-source license, if and when the platform is licensed for wider distribution.
+Publicly viewable proprietary source; no open-source license is granted. See [LICENSE](LICENSE).

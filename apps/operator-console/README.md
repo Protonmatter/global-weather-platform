@@ -1,30 +1,37 @@
 # Operator console
 
-This application is the separately deployable visualization and operator trust
-zone for the Global Probabilistic Weather Platform. It runs on OpenAI Sites
-using Vinext and Cloudflare Worker-compatible bindings.
+This application is the separately deployable visualization and operator trust zone for the Global Probabilistic Weather Platform. It runs on OpenAI Sites using Vinext and Cloudflare Worker-compatible bindings.
 
-The Python FastAPI service at the repository root remains the authoritative
-control plane. Set the server-side `CONTROL_PLANE_URL` runtime variable to proxy
-supported API routes to FastAPI. Set `CONTROL_PLANE_TOKEN` to the same
-minimum-32-character secret injected into FastAPI as
-`WEATHER_CONTROL_PLANE_TOKEN`. The D1/R2 implementation is retained as a
-bounded development fallback; it must not become a second source of
-meteorological truth. The local Vite configuration explicitly injects
-`CONTROL_PLANE_MODE=local-development`; deployed Sites fail closed with HTTP
-503 when `CONTROL_PLANE_URL` is absent and that development-only signal is not
-present.
+The Python FastAPI service remains the authoritative control plane. The D1/R2 implementation is a bounded development fallback and must not become a second source of meteorological truth.
+
+## Authoritative runtime configuration
+
+A deployed Site requires:
+
+```text
+CONTROL_PLANE_URL=https://api.weather.example
+CONTROL_PLANE_ALLOWED_HOSTS=weather.example
+CONTROL_PLANE_TOKEN=<same minimum-32-character value as WEATHER_CONTROL_PLANE_TOKEN>
+```
+
+`CONTROL_PLANE_URL` must:
+
+- use HTTPS outside local loopback development;
+- identify an origin only, with no userinfo, non-root path, query, or fragment;
+- use a DNS hostname rather than an IP literal;
+- exactly match, or be a subdomain of, one entry in the comma-separated `CONTROL_PLANE_ALLOWED_HOSTS` list.
+
+The destination is validated before the BFF attaches the bearer credential. Responses are reconstructed using an explicit safe header set; cookies and internal/debug headers are not forwarded, and redirect locations are limited to same-origin path references with exactly one leading slash.
+
+The local Vite configuration injects `CONTROL_PLANE_MODE=local-development`. In that mode, HTTP is allowed only for `localhost`, `127.0.0.1`, or `::1`. Do not configure `local-development` on a deployed Site.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
 - npm using the committed `package-lock.json`
-- Linux or Git Bash with `flock`, `curl`, and GNU `timeout` for the bounded
-  install and build wrappers
+- Linux or Git Bash with `flock`, `curl`, and GNU `timeout`
 
 ## Commands
-
-From this directory:
 
 ```bash
 npm ci
@@ -33,9 +40,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` performs a production build, validates the Sites artifact, and runs
-the rendered HTML contract test. Root-level `make operator-console-*` targets
-provide the same workflow.
+`npm test` runs unit contracts, a production build, Sites artifact validation, and rendered HTML tests. Root-level `make operator-console-*` targets provide the same workflow.
 
 For development:
 
@@ -43,55 +48,37 @@ For development:
 npm run dev
 ```
 
-## Runtime boundaries
+## Trust boundaries
 
-- `.openai/hosting.json` binds the existing Site project, D1 database, and R2
-  bucket. Keep its opaque project identifier unchanged.
-- `CONTROL_PLANE_URL` is runtime configuration and must not be committed.
-- `CONTROL_PLANE_TOKEN` is a secret runtime value. Never place it in the Sites
-  manifest, source, logs, or audit detail.
-- `CONTROL_PLANE_MODE=local-development` is injected only by the local Vite
-  configuration. Do not configure it on a deployed Site.
+- `.openai/hosting.json` preserves the existing Site, D1, and R2 project bindings.
+- Runtime URLs, host allowlists, and credentials are deployment configuration and must not be committed as production values.
+- `CONTROL_PLANE_TOKEN` must never appear in source, manifests, logs, traces, audit detail, or browser JavaScript.
 - Workspace identity headers are trusted only at the Sites dispatch boundary.
 - Mutating routes require an authenticated operator identity.
-- The BFF strips caller authorization and identity headers, then supplies its
-  service credential and the verified operator identity to FastAPI.
+- The BFF discards caller-supplied authorization and identity headers, then supplies only its service credential and verified operator identity to FastAPI.
+- Raw source data belongs in immutable authoritative storage; D1 stores edge catalog and operational metadata only.
+- Operational GET routes are side-effect free.
 - Third-party telemetry and arbitrary provider egress are not enabled.
-- Raw source data belongs in immutable object storage; D1 stores catalog and
-  operational metadata.
-- Operational GET routes are side-effect free. Synthetic observations and
-  model cycles are not seeded by the deployed console.
 
-Migration `0003_quarantine_legacy_fixtures.sql` removes the three previously
-hardcoded model cycles and quarantines previously generated `validation-set/*`
-observations with an explicit synthetic-fixture flag. Retained raw source bytes
-and audit history remain immutable for accountability.
+## Mutation and audit behavior
 
-The mutation sequence is explicit: `POST /api/v1/source-records` retains the
-bounded raw bytes by digest, then `POST /api/v1/observations` validates the
-operator DTO and translates it to the canonical FastAPI schema. The console
-never asks FastAPI's decode-and-ingest endpoint to interpret a retention-only
-payload. Local edge audit events record authenticated BFF activity; they are
-not presented as the authoritative meteorological store. If an upstream
-mutation succeeds while D1 audit persistence fails, the BFF preserves the
-upstream success, emits a sanitized structured error, and returns
-`x-weather-edge-audit-status: failed` rather than reporting a false mutation
-failure.
+The mutation sequence is explicit:
+
+1. `POST /api/v1/source-records` hashes and retains bounded source bytes through the authoritative control plane.
+2. `POST /api/v1/observations` validates the operator DTO and translates it to the canonical FastAPI schema.
+3. FastAPI writes authoritative `attempted` and terminal `succeeded` or `failed` mutation events bound to one request UUID.
+4. The Sites edge records a supplementary best-effort audit event.
+
+If edge audit persistence fails after an upstream success, the BFF preserves the authoritative success and returns `x-weather-edge-audit-status: failed`. Edge audit is supplemental; the FastAPI audit ledger is authoritative.
+
+Raw source-record retrieval is also protected by the control-plane service credential and trusted actor identity. Knowing a content digest is not authorization.
 
 ## Deployment and rollback
 
-Sites deployments are built from a committed source revision and saved as
-versioned releases. Deploy through the Sites workflow, not by creating an
-independent Site. Roll back by redeploying the preceding saved Site version.
+Sites deployments are built from committed source revisions and saved as versioned releases. Deploy through the existing Sites workflow. Roll back by redeploying the preceding saved Site version.
 
-The current application provides observation ingestion, model-cycle status,
-audit history, OGC EDR-style position queries, provenance, and quarantine-aware
-operator views. It is not the deferred probabilistic forecast shell described
-by `UX-001`.
+The application provides observation ingestion, model-cycle status, audit history, OGC EDR-style position queries, provenance, and quarantine-aware operator views. It is not the deferred probabilistic forecast shell described by `UX-001`.
 
 ## Source provenance
 
-This application was imported from Global Weather Platform Site version 2 at
-source commit `0d9bb9b286f92b53cf3b647525c277428ffd8a24`. The opaque project
-binding in `.openai/hosting.json` preserves continuity with the existing
-versioned deployment.
+This application was imported from Global Weather Platform Site version 2 at source commit `0d9bb9b286f92b53cf3b647525c277428ffd8a24`. The opaque project binding in `.openai/hosting.json` preserves continuity with the existing versioned deployment.

@@ -49,7 +49,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: acquisition
-          image: ghcr.io/protonmatter/global-weather-platform:0.1.0
+          # Source placeholder only. CI must render a real repository@sha256
+          # reference before this manifest is eligible for deployment.
+          image: weather-platform-runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
           command:
             - weather-platform-acquisition

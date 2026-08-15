@@ -7,7 +7,21 @@
 3. Implement the smallest vertical change.
 4. Add unit, property, schema, contract, scientific, or operational tests as applicable.
 5. Regenerate `artifacts/traceability.json`.
-6. Submit a pull request with scientific, security, data, and UX impact sections.
+6. Run `make dependency-policy` and the applicable end-to-end lane.
+7. Submit a pull request with scientific, security, data, and UX impact sections.
+
+## Delivery gates
+
+The reusable continuous-integration workflow fans out specification,
+dependency-lock, Python, operator-console, schema, scientific, integration, and
+process-boundary end-to-end checks. Continuous delivery cannot construct a
+release image until that entire fan-out passes for the same revision.
+
+Dependency updates follow the same sequence as application changes: update the
+bounded manifest, regenerate the committed lock with the pinned compiler, keep
+the runtime pins explicit, update affected requirements when compatibility
+changes, and run the complete gate. Automated major upgrades are intentionally
+disabled so they cannot bypass specification review.
 
 ## Pull-request evidence
 

@@ -10,6 +10,7 @@ import {
   readBoundedRequestBody,
   RequestBodyError,
   sha256Digest,
+  sourceRecordRetentionResponse,
 } from "../../../../lib/weather";
 
 export async function POST(request: Request) {
@@ -89,17 +90,10 @@ export async function POST(request: Request) {
       controlPlane: "remote-authoritative",
     },
   });
-  return Response.json(
-    {
-      source_record_digest: digest,
-      status: upstream.status === 201 ? "retained" : "already_retained",
-      byte_length: payload.byteLength,
-    },
-    {
-      status: upstream.status,
-      headers: auditRecorded
-        ? undefined
-        : { "x-weather-edge-audit-status": "failed" },
-    },
+  return sourceRecordRetentionResponse(
+    upstream,
+    digest,
+    payload.byteLength,
+    auditRecorded,
   );
 }

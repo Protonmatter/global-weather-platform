@@ -1,0 +1,30 @@
+name: continuous-integration
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  specification:
+    uses: ./.github/workflows/spec-validation.yml
+  dependency-locks:
+    uses: ./.github/workflows/python-lock.yml
+  python-quality:
+    uses: ./.github/workflows/ci-bootstrap.yml
+  python-fast:
+    uses: ./.github/workflows/pr-fast.yml
+  schema-contract:
+    uses: ./.github/workflows/schema-contract.yml
+  weather-contract:
+    uses: ./.github/workflows/weather-contract.yml
+  scientific-validation:
+    uses: ./.github/workflows/scientific-validation.yml
+  weather-integration:
+    uses: ./.github/workflows/weather-integration.yml
+  operator-console:
+    uses: ./.github/workflows/operator-console.yml
+  end-to-end:
+    uses: ./.github/workflows/end-to-end.yml
+

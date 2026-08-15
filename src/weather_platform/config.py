@@ -49,10 +49,15 @@ class Settings(BaseSettings):
         return self
 
     data_filename: str = Field(default="observations.jsonl", exclude=True)
+    audit_filename: str = Field(default="mutation-audit.jsonl", exclude=True)
 
     @property
     def observation_path(self) -> Path:
         return self.data_dir / self.data_filename
+
+    @property
+    def audit_path(self) -> Path:
+        return self.data_dir / self.audit_filename
 
     @property
     def model_catalog_path(self) -> Path:

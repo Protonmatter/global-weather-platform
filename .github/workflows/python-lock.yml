@@ -1,0 +1,56 @@
+name: python-lock
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'requirements/**'
+      - 'scripts/compile_requirements.sh'
+      - '.github/workflows/python-lock.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-lock-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version-file: '.python-version'
+          cache: pip
+      - name: Install locked compiler
+        run: |
+          python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/compiler.lock
+      - name: Generate lock evidence
+        run: bash scripts/compile_requirements.sh generated-locks
+      - name: Verify checked lock files are current
+        run: |
+          if [[ -f requirements/compiler.lock || -f requirements/production.lock || -f requirements/ci.lock ]]; then
+            test -f requirements/compiler.lock
+            test -f requirements/production.lock
+            test -f requirements/ci.lock
+            diff -u requirements/compiler.lock generated-locks/compiler.lock
+            diff -u requirements/production.lock generated-locks/production.lock
+            diff -u requirements/ci.lock generated-locks/ci.lock
+          fi
+      - name: Upload generated locks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: python-locks-${{ github.sha }}
+          path: generated-locks/*.lock
+          if-no-files-found: error
+          retention-days: 14

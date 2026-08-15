@@ -1,16 +1,22 @@
 name: weather-contract
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'src/weather_platform/acquisition/**'
+      - 'src/weather_platform/api/**'
       - 'src/weather_platform/domain/**'
       - 'src/weather_platform/grids/**'
       - 'src/weather_platform/ingestion/eccodes_backend.py'
       - 'src/weather_platform/serving/**'
+      - 'src/weather_platform/storage/audit.py'
+      - 'src/scripts/**'
       - 'schemas/grids/**'
       - 'schemas/manifests/**'
       - 'deploy/k8s/weather-*.yaml'
+      - 'requirements/ci.lock'
+      - 'tests/unit/test_audit_domain.py'
       - 'tests/unit/test_source_manifests.py'
       - 'tests/unit/test_grid_assets.py'
       - 'tests/unit/test_grib_index.py'
@@ -20,15 +26,15 @@ on:
       - 'tests/unit/test_coordinates.py'
       - 'tests/unit/test_wind.py'
       - 'tests/unit/test_vector_tiles.py'
+      - 'tests/unit/test_release_manifest.py'
+      - 'tests/contract/test_operationalization_routes.py'
+      - 'tests/contract/test_request_identity.py'
       - 'tests/contract/test_weather_schemas.py'
       - 'tests/contract/test_weather_deployment_policy.py'
       - 'tests/functional/test_weather_acquisition_cli.py'
       - 'tests/integration/test_weather_vertical_slice.py'
       - 'tests/regression/test_weather_adversarial_regressions.py'
       - '.github/workflows/weather-contract.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 
@@ -46,17 +52,28 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
           cache: pip
+          cache-dependency-path: requirements/ci.lock
       - name: Create isolated environment
         run: python -m venv .venv
-      - name: Install
-        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+      - name: Install hash-pinned dependencies
+        run: |
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/ci.lock
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --no-build-isolation \
+            --no-deps \
+            --editable .
       - name: Run weather contract tests
         run: |
           mkdir -p artifacts
           .venv/bin/python -m pytest -q --no-cov \
             --junitxml=artifacts/weather-contract-junit.xml \
+            tests/unit/test_audit_domain.py \
             tests/unit/test_source_manifests.py \
             tests/unit/test_grid_assets.py \
             tests/unit/test_grib_index.py \
@@ -66,6 +83,9 @@ jobs:
             tests/unit/test_coordinates.py \
             tests/unit/test_wind.py \
             tests/unit/test_vector_tiles.py \
+            tests/unit/test_release_manifest.py \
+            tests/contract/test_operationalization_routes.py \
+            tests/contract/test_request_identity.py \
             tests/contract/test_weather_schemas.py \
             tests/contract/test_weather_deployment_policy.py \
             tests/functional/test_weather_acquisition_cli.py \

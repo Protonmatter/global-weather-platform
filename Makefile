@@ -1,4 +1,4 @@
-.PHONY: install validate lint typecheck test run clean traceability \
+.PHONY: install validate dependency-policy lint typecheck test e2e run clean traceability \
 	weather-contract schema-contract scientific-validation weather-integration weather-regression \
 	operator-console-install operator-console-lint operator-console-typecheck \
 	operator-console-test operator-console-check
@@ -9,7 +9,11 @@ install:
 validate:
 	python scripts/validate_specs.py
 	python scripts/validate_schemas.py
+	python scripts/validate_dependency_policy.py
 	python scripts/generate_traceability.py --check
+
+dependency-policy:
+	python scripts/validate_dependency_policy.py
 
 lint:
 	ruff check .
@@ -20,6 +24,10 @@ typecheck:
 
 test:
 	pytest
+
+e2e:
+	npm --prefix apps/operator-console run build
+	PYTHON_BIN="$(CURDIR)/.venv/bin/python" npm --prefix apps/operator-console run test:e2e
 
 weather-contract:
 	pytest -q --no-cov \

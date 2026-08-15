@@ -20,7 +20,7 @@ RUN python -m pip install \
       --no-index \
       --find-links=/wheelhouse \
       --no-cache-dir \
-      global-weather-platform \
+      'global-weather-platform[eccodes]' \
     && rm -rf /wheelhouse
 
 USER 10001

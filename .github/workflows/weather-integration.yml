@@ -1,6 +1,7 @@
 name: weather-integration
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'src/weather_platform/acquisition/**'
@@ -14,9 +15,6 @@ on:
       - 'tests/integration/test_weather_vertical_slice.py'
       - 'tests/regression/test_weather_adversarial_regressions.py'
       - '.github/workflows/weather-integration.yml'
-  push:
-    branches: [main]
-
 permissions:
   contents: read
 
@@ -34,12 +32,21 @@ jobs:
       - name: Install Python 3.12
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
           cache: pip
       - name: Create isolated environment
         run: python -m venv .venv
       - name: Install with ecCodes
-        run: .venv/bin/python -m pip install -e '.[dev,eccodes]'
+        run: |
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --requirement requirements/ci.lock
+          .venv/bin/python -m pip install \
+            --disable-pip-version-check \
+            --no-build-isolation \
+            --no-deps \
+            --editable .
       - name: Run fixture-driven functional and integration paths
         run: |
           mkdir -p artifacts

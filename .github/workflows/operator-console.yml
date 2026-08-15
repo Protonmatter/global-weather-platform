@@ -1,18 +1,12 @@
 name: operator-console
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'apps/operator-console/**'
       - 'Makefile'
       - '.github/workflows/operator-console.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/operator-console/**'
-      - 'Makefile'
-      - '.github/workflows/operator-console.yml'
-
 permissions:
   contents: read
 
@@ -29,7 +23,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
-          node-version: '22.13.1'
+          node-version-file: apps/operator-console/.nvmrc
           cache: npm
           cache-dependency-path: apps/operator-console/package-lock.json
       - name: Install locked dependencies

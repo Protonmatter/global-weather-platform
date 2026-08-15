@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adaptControlPlaneAuditEvents,
   adaptControlPlaneEdrCollections,
   adaptControlPlaneHealth,
   adaptControlPlaneModelCycles,
@@ -11,13 +12,16 @@ import {
   deterministicObservationId,
   isPhenomenon,
   longitudeRanges,
+  mappedJsonResponse,
   normalizeObservationInput,
   parseDatetimeInterval,
   parseWktPoint,
   proxyToControlPlane,
   readBoundedRequestBody,
   RequestBodyError,
+  safeUpstreamResponseHeaders,
   sha256Text,
+  sourceRecordRetentionResponse,
   toControlPlaneObservation,
 } from "../lib/weather.ts";
 import { bestEffortAudit } from "../lib/audit-policy.ts";
@@ -211,6 +215,64 @@ test("control-plane proxy allowlists headers and replaces identity", async () =>
   }
 });
 
+test("control-plane proxy preserves safe authentication and method headers", () => {
+  const safe = safeUpstreamResponseHeaders(
+    new Headers({
+      allow: "GET, HEAD",
+      "set-cookie": "session=secret",
+      "www-authenticate": 'Bearer realm="weather"',
+    }),
+  );
+
+  assert.equal(safe.get("allow"), "GET, HEAD");
+  assert.equal(safe.get("www-authenticate"), 'Bearer realm="weather"');
+  assert.equal(safe.get("set-cookie"), null);
+});
+
+test("source retention responses preserve trusted correlation and audit headers", async () => {
+  const requestId = "632cc37d-bc70-41c2-8302-74ded8e58031";
+  const digest = `sha256:${"d".repeat(64)}`;
+  const upstream = new Response(JSON.stringify({ upstream: true }), {
+    status: 201,
+    headers: {
+      "cache-control": "private, no-store",
+      "content-type": "application/vnd.weather+json",
+      etag: '"upstream-representation"',
+      "set-cookie": "session=must-not-escape",
+      "x-request-id": requestId,
+      "x-weather-edge-audit-status": "recorded",
+    },
+  });
+
+  const response = sourceRecordRetentionResponse(
+    upstream,
+    digest,
+    37,
+    false,
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get("x-request-id"), requestId);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("x-weather-edge-audit-status"), "failed");
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.equal(response.headers.get("etag"), null);
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.deepEqual(await response.json(), {
+    source_record_digest: digest,
+    status: "retained",
+    byte_length: 37,
+  });
+
+  const auditedResponse = sourceRecordRetentionResponse(
+    upstream,
+    digest,
+    37,
+    true,
+  );
+  assert.equal(auditedResponse.headers.get("x-weather-edge-audit-status"), null);
+});
+
 test("control-plane mutations reject short service credentials", async () => {
   const runtime = globalThis;
   const originalEnvironment = runtime.__WEATHER_ENV__;
@@ -317,6 +379,26 @@ test("authoritative responses are normalized to console DTOs", () => {
   ]);
   assert.equal(cycles.cycles[0].availableFieldCount, 1);
 
+  const audit = adaptControlPlaneAuditEvents({
+    events: [
+      {
+        event_id: "fcaf573e-a9d4-4de0-aa98-3ba70132036f",
+        request_id: "247c9cf1-80d6-4c8f-b1d5-e96abf2e1cc4",
+        actor: "operator@example.invalid",
+        action: "source_record.retained",
+        resource_type: "source_record",
+        resource_id: `sha256:${"c".repeat(64)}`,
+        result: "succeeded",
+        occurred_at: "2026-08-14T12:00:00Z",
+        software_version: "0.1.0",
+        detail: { byte_length: 42 },
+      },
+    ],
+  });
+  assert.equal(audit.events[0].requestId, "247c9cf1-80d6-4c8f-b1d5-e96abf2e1cc4");
+  assert.equal(audit.events[0].result, "succeeded");
+  assert.deepEqual(audit.events[0].detail, { byte_length: 42 });
+
   const health = adaptControlPlaneHealth({
     status: "ok",
     version: "0.1.0",
@@ -345,4 +427,34 @@ test("authoritative responses are normalized to console DTOs", () => {
     collections.collections[0].data_queries.position.link.href,
     "/api/v1/edr/collections/observations/position",
   );
+});
+
+test("mapped JSON responses preserve safe correlation headers", async () => {
+  const requestId = "7e190a25-b84f-47ab-b6ac-dac1c6f0d425";
+  const upstream = new Response(JSON.stringify({ status: "ok" }), {
+    status: 200,
+    headers: {
+      "cache-control": "private, no-store",
+      "content-length": "15",
+      "content-type": "application/vnd.weather+json",
+      etag: '"upstream-representation"',
+      "set-cookie": "session=must-not-escape",
+      "x-request-id": requestId,
+    },
+  });
+
+  const response = await mappedJsonResponse(
+    new Request("https://site.example/api/v1/healthz"),
+    upstream,
+    (payload) => ({ mapped: payload }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-request-id"), requestId);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.equal(response.headers.get("content-length"), null);
+  assert.equal(response.headers.get("etag"), null);
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.deepEqual(await response.json(), { mapped: { status: "ok" } });
 });
